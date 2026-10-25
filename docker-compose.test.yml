@@ -1,0 +1,34 @@
+services:
+  tests:
+    build:
+      context: .
+      target: test
+    image: voxclone:test
+    container_name: voxclone_tests
+    network_mode: "none"
+    environment:
+      - VOXCLONE_ENGINE=fake
+      - VOXCLONE_DATA_DIR=/tmp/voxclone-data
+      - HF_HUB_OFFLINE=1
+      - PYTHONUNBUFFERED=1
+    tmpfs:
+      - /tmp
+    command: ["make", "test"]
+
+  e2e:
+    build:
+      context: .
+      target: test
+    image: voxclone:test
+    container_name: voxclone_e2e
+    stdin_open: true
+    tty: true
+    network_mode: "none"
+    environment:
+      - VOXCLONE_ENGINE=fake
+      - VOXCLONE_DATA_DIR=/tmp/voxclone-data
+      - HF_HUB_OFFLINE=1
+      - PYTHONUNBUFFERED=1
+    tmpfs:
+      - /tmp
+    command: ["pytest", "tests/e2e", "-v"]

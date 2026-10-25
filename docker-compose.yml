@@ -1,0 +1,36 @@
+services:
+  voxclone:
+    build:
+      context: .
+      target: runtime
+    image: voxclone:latest
+    container_name: voxclone_app
+    env_file:
+      - path: .env
+        required: false
+    stdin_open: true
+    tty: true
+    shm_size: "2gb"
+    environment:
+      - PULSE_SERVER=unix:/mnt/wslg/PulseServer
+      - HF_HOME=/models
+      - HF_HUB_OFFLINE=1
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - hf_models:/models
+      - ./profiles:/app/profiles
+      - ./outputs:/app/outputs
+      - ./inputs:/app/inputs
+      - ./data:/app/data
+      - /mnt/wslg:/mnt/wslg
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  hf_models:
+    name: voxclone_hf_models

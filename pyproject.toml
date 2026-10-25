@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voxclone"
+version = "1.0.0.dev0"
+description = "Terminal-based zero-shot voice cloning CLI with chunked parallel processing"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "VoxClone Lead Systems Architect", email = "dev@voxclone.local" }
+]
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    "questionary>=2.0.0",
+    "numpy>=1.26.0",
+    "soundfile>=0.12.1",
+    "sounddevice>=0.4.6",
+    "librosa>=0.10.1",
+    "transformers>=4.40.0"
+]
+
+[project.scripts]
+voxclone = "voxclone.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pexpect>=4.9.0",
+    "ruff>=0.4.0",
+    "black>=24.3.0",
+    "mypy>=1.9.0",
+    "pip-tools>=7.4.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+strict = true
+files = ["src/voxclone"]
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "torch.*",
+    "chatterbox.*",
+    "librosa.*",
+    "sounddevice.*",
+    "soundfile.*",
+    "questionary.*",
+    "transformers.*",
+    "pexpect.*"
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-m 'not gpu' -ra"
+markers = [
+    "gpu: marks tests as requiring GPU hardware and PyTorch CUDA (deselect with '-m \"not gpu\"')",
+    "e2e: marks end-to-end interactive CLI terminal tests"
+]
+
+[tool.coverage.run]
+source = ["src/voxclone"]
+omit = [
+    "src/voxclone/engines/real_*.py",
+    "src/voxclone/__main__.py"
+]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:"
+]

@@ -1,0 +1,7 @@
+services:
+  voxclone:
+    environment:
+      - VOXCLONE_LOG_LEVEL=DEBUG
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
