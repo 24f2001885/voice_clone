@@ -36,6 +36,7 @@ class SessionState:
     model_manager: Any = None
     model_service: Any = None
     profile_service: Any = None
+    job_service: Any = None
     settings_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
@@ -94,10 +95,16 @@ def bootstrap(debug: bool = False, plain: bool = False) -> SessionState:
     conn = connect(config.db_path)
     apply_migrations(conn, config.migrations_dir)
 
-    # 4. Ensure settings defaults
+    # 4. Ensure settings defaults & run startup sweep
     settings_svc = SettingsService(conn, config)
     settings_svc.ensure_defaults()
     settings_snapshot = {k: v.value for k, v in settings_svc.get_all().items()}
+
+    from voxclone.services.system_service import startup_sweep
+    try:
+        startup_sweep(conn, config)
+    except Exception:
+        pass
 
     # 5. UI Theme and Console
     theme = get_theme(plain=is_plain, no_color=config.no_color)
@@ -105,12 +112,14 @@ def bootstrap(debug: bool = False, plain: bool = False) -> SessionState:
 
     # 6. Initialize Model Manager and Services
     from voxclone.engines.model_manager import ModelManager
+    from voxclone.services.job_service import JobService
     from voxclone.services.model_service import ModelService
     from voxclone.services.profile_service import ProfileService
 
     model_mgr = ModelManager(config=config, db_path=config.db_path)
     model_svc = ModelService(model_manager=model_mgr, db_path=config.db_path)
     profile_svc = ProfileService(db_path=config.db_path, profiles_dir=config.profiles_dir)
+    job_svc = JobService(conn=conn, config=config, model_manager=model_mgr)
 
     state = SessionState(
         config=config,
@@ -122,6 +131,7 @@ def bootstrap(debug: bool = False, plain: bool = False) -> SessionState:
         model_manager=model_mgr,
         model_service=model_svc,
         profile_service=profile_svc,
+        job_service=job_svc,
         settings_snapshot=settings_snapshot,
     )
     log_event("voxclone", "INFO", "app_bootstrap_completed")

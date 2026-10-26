@@ -30,16 +30,18 @@ def run_text_pipeline(
         total_chunks = len(raw_chunks)
         jobs_repo.set_total_chunks(conn, job.id, total_chunks)
 
-        chunk_records = [
-            {
-                "chunk_index": i,
-                "kind": "sentence",
-                "text": text,
-                "status": "pending",
-            }
-            for i, text in enumerate(raw_chunks)
-        ]
-        chunks_repo.insert_chunks(conn, job.id, chunk_records)
+        existing_chunks = chunks_repo.list_chunks(conn, job.id)
+        if not existing_chunks:
+            chunk_records = [
+                {
+                    "chunk_index": i,
+                    "kind": "sentence",
+                    "text": text,
+                    "status": "pending",
+                }
+                for i, text in enumerate(raw_chunks)
+            ]
+            chunks_repo.insert_chunks(conn, job.id, chunk_records)
 
         yield ProgressEvent(
             stage="split",

@@ -180,6 +180,16 @@ class ProfileService:
                 profile_id=profile_id,
             )
 
+    def enroll_from_file(
+        self,
+        name: str,
+        source_path: Path,
+        consent_confirmed: bool = True,
+    ) -> VoiceProfile:
+        """Convenience method to prepare and commit a profile from a file."""
+        prep = self.prepare_from_file(source_path)
+        return self.save_profile(name=name, prepared=prep, consent_confirmed=consent_confirmed)
+
     def list_profiles(self) -> list[VoiceProfile]:
         """Fetch all registered voice profiles ordered by creation time descending."""
         with get_db(self._db_path) as conn:

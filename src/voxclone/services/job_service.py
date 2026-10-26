@@ -253,3 +253,26 @@ class JobService:
             except OSError as err:
                 logger.warning(f"Failed deleting output file {job.output_path}: {err}")
         return jobs_repo.delete_job(self.conn, job_id)
+
+    def resume_job(
+        self,
+        job_id: str,
+        cancel_event: threading.Event | None = None,
+    ) -> Generator[ProgressEvent, None, None]:
+        """Resume an incomplete, cancelled, or failed job from its last completed state."""
+        job = jobs_repo.get_job(self.conn, job_id)
+        if not job:
+            raise InternalError(f"Cannot resume nonexistent job: '{job_id}'")
+
+        if job.status == "succeeded":
+            yield ProgressEvent(
+                stage="done",
+                total_chunks=job.total_chunks,
+                message="Job has already succeeded and is fully complete.",
+            )
+            return
+
+        # Reset status to queued and execute remaining chunks
+        jobs_repo.update_job_status(self.conn, job_id, "queued")
+        yield from self.run_job(job_id, cancel_event=cancel_event)
+

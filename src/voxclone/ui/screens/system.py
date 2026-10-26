@@ -1,5 +1,6 @@
 """System management screens: Model status, Free GPU, Doctor, and Storage (S-50 to S-56)."""
 
+import time
 from typing import Any
 
 import questionary
@@ -205,6 +206,99 @@ def screen_storage(state: Any) -> None:
         input("Press Enter to return...")
 
 
+def screen_settings_overview(state: Any) -> None:
+    """Render interactive Settings configuration editor (S-54 & S-55)."""
+    from voxclone.services.settings_service import SettingsService
+
+    settings_svc = SettingsService(conn=state.conn, config=state.config)
+    plain = state.plain
+
+    while True:
+        state.console.clear() if not plain else None
+        render_header(state.console, state)
+
+        all_settings = settings_svc.get_all()
+
+        table = Table(title="Application Settings (S-54)", expand=False)
+        table.add_column("Setting Key", style="cyan", width=22)
+        table.add_column("Current Value", style="bold", width=20)
+        table.add_column("Source", width=10)
+        table.add_column("Status", width=12)
+
+        for key, s_val in all_settings.items():
+            status_text = "[bold yellow]LOCKED (env)[/bold yellow]" if s_val.locked else "[green]Modifiable[/green]"
+            table.add_row(key, str(s_val.value), s_val.source, status_text)
+
+        state.console.print(table)
+
+        choices = [
+            questionary.Choice(
+                title=f"{k}: {s.value} {'(LOCKED)' if s.locked else ''}",
+                value=k,
+            )
+            for k, s in all_settings.items()
+        ]
+        choices.append(questionary.Choice(title="↺ Reset all non-locked settings to defaults", value="reset"))
+        choices.append(questionary.Choice(title="← Back to System menu", value="back"))
+
+        picked_key = questionary.select(
+            "Select setting to edit (S-55):",
+            choices=choices,
+        ).ask()
+
+        if not picked_key or picked_key == "back":
+            break
+
+        if picked_key == "reset":
+            if questionary.confirm("Reset all non-locked database settings to default values?", default=False).ask():
+                settings_svc.reset_defaults()
+                state.console.print("[green]✔ Settings reset to defaults.[/green]")
+                time.sleep(0.5)
+            continue
+
+        selected_setting = all_settings[picked_key]
+        if selected_setting.locked:
+            render_panel(
+                state.console,
+                title=f"Setting '{picked_key}' is Locked",
+                lines=[
+                    f"This setting is locked by environment variable override: {selected_setting.value}",
+                    "To modify it, edit or remove it from your .env file and restart the application.",
+                ],
+                kind="warning",
+                plain=plain,
+            )
+            if not plain:
+                questionary.text("Press Enter to continue...", qmark="→").ask()
+            else:
+                input("Press Enter to continue...")
+            continue
+
+        # Edit prompt (S-55)
+        new_val_str = questionary.text(
+            f"Enter new value for '{picked_key}' (current: {selected_setting.value}):",
+            default=str(selected_setting.value),
+        ).ask()
+
+        if new_val_str is not None and new_val_str != str(selected_setting.value):
+            try:
+                settings_svc.set(picked_key, new_val_str)
+                state.console.print(f"[bold green]✔ Successfully updated '{picked_key}'![/bold green]")
+                time.sleep(0.6)
+            except Exception as exc:
+                render_panel(
+                    state.console,
+                    title="Setting Validation Error",
+                    lines=[str(exc)],
+                    kind="error",
+                    plain=plain,
+                )
+                if not plain:
+                    questionary.text("Press Enter to continue...", qmark="→").ask()
+                else:
+                    input("Press Enter to continue...")
+
+
 def screen_system_menu(state: Any) -> None:
     """Render the System admin dropdown menu (S-50)."""
     choices = [
@@ -213,7 +307,7 @@ def screen_system_menu(state: Any) -> None:
         "Verify / Fetch model weights",
         "Doctor (system checks) (S-53)",
         "Storage utilization (S-56)",
-        "Settings",
+        "Settings (S-54 & S-55)",
     ]
 
     while True:
@@ -240,18 +334,6 @@ def screen_system_menu(state: Any) -> None:
             screen_doctor(state)
         elif choice == "Storage utilization (S-56)":
             screen_storage(state)
-        elif choice == "Settings":
-            render_panel(
-                state.console,
-                title="Settings Configuration",
-                lines=[
-                    "Interactive Settings editor arrives in Milestone P5.",
-                    "Use environment variables or SQLite app_settings to modify settings.",
-                ],
-                kind="warning",
-                plain=state.plain,
-            )
-            if not state.plain:
-                questionary.text("Press Enter to return...", qmark="→").ask()
-            else:
-                input("Press Enter to return...")
+        elif choice == "Settings (S-54 & S-55)":
+            screen_settings_overview(state)
+

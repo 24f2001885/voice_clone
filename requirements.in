@@ -4,7 +4,7 @@ rich>=13.7.0                # Terminal rendering, panels, badges, tables
 questionary>=2.0.0          # Dropdown keyboard-driven interactive prompts
 
 # Audio Processing & Signal Manipulation
-numpy>=1.26.0               # Float32 array calculations and DSP buffers
+numpy>=1.26.4,1.25.2             # Float32 array calculations and DSP buffers
 soundfile>=0.12.1           # Audio file read/write (WAV, FLAC)
 sounddevice>=0.4.6          # Microphone recording and speaker playback
 librosa>=0.10.1             # Audio resampling, RMS energy, silence detection
