@@ -27,6 +27,13 @@ system_app = typer.Typer(
 )
 app.add_typer(system_app)
 
+profiles_app = typer.Typer(
+    name="profiles",
+    help="Voice profile enrollment, listing, inspection, and lifecycle management",
+    no_args_is_help=True,
+)
+app.add_typer(profiles_app)
+
 
 @dataclass
 class CliContext:
@@ -219,3 +226,306 @@ def system_migrate(
     finally:
         if state is not None:
             session.close(state)
+
+
+@system_app.command("free-gpu")
+def system_free_gpu(
+    ctx: typer.Context,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """Manually unload resident neural models and clear PyTorch CUDA caches."""
+    cli_ctx: CliContext = ctx.find_root().obj or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        res = state.model_service.free_gpu_memory()
+        unloaded = res.get("unloaded_key") or "(none)"
+        freed = res.get("freed_mb")
+        free_now = res.get("free_now_mb")
+        state.console.print(f"Unloaded resident model: {unloaded}")
+        if freed is not None:
+            state.console.print(f"Reclaimed VRAM: +{freed} MB")
+        if free_now is not None:
+            state.console.print(f"Current free VRAM: {free_now} MB")
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    except Exception as exc:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        err = InternalError(f"Free GPU command failed: {exc!s}")
+        err.__cause__ = exc
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+@system_app.command("fetch-models")
+def system_fetch_models(
+    ctx: typer.Context,
+    keys: Annotated[list[str] | None, typer.Option("--key", "-k", help="Specific model keys ('tts', 'vc', 'emotion')")] = None,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """Verify or download required neural model weights from Hugging Face."""
+    from voxclone.services.system_service import fetch_models
+
+    cli_ctx: CliContext = ctx.find_root().obj or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        results = fetch_models(state.config, keys=keys)
+        columns = ["Model Key", "Repository", "Status", "Detail"]
+        rows = []
+        for r in results:
+            rows.append([r.model_key, r.repo_id, "OK" if r.ok else "FAIL", r.detail])
+        render_table(
+            console=state.console,
+            title="Model Weights Verification",
+            columns=columns,
+            rows=rows,
+            plain=state.plain,
+        )
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    except Exception as exc:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        err = InternalError(f"Fetch models failed: {exc!s}")
+        err.__cause__ = exc
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+@system_app.command("status")
+def system_status(
+    ctx: typer.Context,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """Inspect active neural model residency and VRAM status."""
+    cli_ctx: CliContext = ctx.find_root().obj or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        status = state.model_service.get_status()
+        state.console.print(f"Resident Model : {status.resident_key or '(none)'}")
+        state.console.print(f"Compute Device : {status.device}")
+        state.console.print(f"VRAM Free      : {status.vram_free_mb if status.vram_free_mb is not None else 'n/a'} MB")
+        state.console.print(f"VRAM Total     : {status.vram_total_mb if status.vram_total_mb is not None else 'n/a'} MB")
+        state.console.print(f"Engine Mode    : {status.engine_mode}")
+        state.console.print(f"Keep-Warm      : {status.keep_warm}")
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+@profiles_app.command("list")
+def profiles_list(
+    ctx: typer.Context,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """List all registered voice profiles."""
+    cli_ctx: CliContext = ctx.find_root().obj or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        profiles = state.profile_service.list_profiles()
+        if not profiles:
+            state.console.print("No voice profiles registered.")
+            return
+
+        columns = ["ID", "Name", "Duration", "Source", "Quality", "Created At"]
+        rows = []
+        for p in profiles:
+            score = f"{int(p.quality_score * 100)}%" if p.quality_score is not None else "n/a"
+            rows.append([p.id[:8], p.name, f"{p.duration_sec:.1f}s", p.source_type, score, p.created_at[:19]])
+
+        render_table(
+            console=state.console,
+            title="Registered Voice Profiles",
+            columns=columns,
+            rows=rows,
+            plain=state.plain,
+        )
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+@profiles_app.command("enroll")
+def profiles_enroll(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Option("--name", "-n", help="Unique voice profile name")],
+    file: Annotated[str | None, typer.Option("--file", "-f", help="Path to reference audio file")] = None,
+    mic: Annotated[bool, typer.Option("--mic", "-m", help="Record reference speech from microphone")] = False,
+    duration: Annotated[float, typer.Option("--duration", "-d", help="Recording duration in seconds (10-30s)")] = 15.0,
+    consent: Annotated[bool, typer.Option("--consent/--no-consent", help="Confirm ethical speaker consent (VX-103 mandatory)")] = False,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """Enroll a new voice profile from an audio file or microphone recording."""
+    from pathlib import Path
+    from voxclone.errors import ConsentRequiredError
+
+    cli_ctx: CliContext = ctx.find_root().obj or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    if not consent:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        err = ConsentRequiredError(
+            "Consent confirmation is mandatory to enroll a voice profile (--consent required).",
+            hint="Pass --consent flag to certify you have explicit authorization to clone this voice.",
+        )
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+
+    if not file and not mic:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        err = InternalError("Must provide either --file <path> or --mic to enroll a voice profile.")
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        if file:
+            prepared = state.profile_service.prepare_from_file(Path(file))
+        else:
+            prepared = state.profile_service.prepare_from_mic(duration_sec=duration)
+
+        profile = state.profile_service.save_profile(
+            name=name,
+            prepared=prepared,
+            consent_confirmed=True,
+        )
+        state.console.print(f"Profile '{profile.name}' enrolled successfully.")
+        state.console.print(f"ID: {profile.id} | Duration: {profile.duration_sec:.1f}s | Quality Score: {int((profile.quality_score or 0) * 100)}%")
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+@profiles_app.command("preview")
+def profiles_preview(
+    identifier: Annotated[str, typer.Argument(help="Voice profile ID or exact name")],
+    ctx: typer.Context,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """Play reference audio of an enrolled voice profile."""
+    from voxclone.audio.io import play_audio
+
+    cli_ctx: CliContext = ctx.find_root().obj or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        profile_path = state.profile_service.preview_profile(identifier)
+        state.console.print(f"Playing reference audio: {profile_path}")
+        play_audio(profile_path)
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+@profiles_app.command("rename")
+def profiles_rename(
+    identifier: Annotated[str, typer.Argument(help="Voice profile ID or exact name")],
+    new_name: Annotated[str, typer.Argument(help="New profile name")],
+    ctx: typer.Context,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """Rename an existing voice profile."""
+    cli_ctx: CliContext = ctx.find_root().obj or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        profile = state.profile_service.get_profile(identifier)
+        updated = state.profile_service.rename_profile(profile.id, new_name)
+        state.console.print(f"Voice profile renamed to '{updated.name}'.")
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+@profiles_app.command("delete")
+def profiles_delete(
+    identifier: Annotated[str, typer.Argument(help="Voice profile ID or exact name")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompt")] = False,
+    ctx: typer.Context = None,  # type: ignore[assignment]
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """Delete an enrolled voice profile and its reference audio file."""
+    cli_ctx: CliContext = (ctx.find_root().obj if ctx else None) or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        profile = state.profile_service.get_profile(identifier)
+        if not yes:
+            confirm = input(f"Are you sure you want to delete profile '{profile.name}'? [y/N]: ").strip().lower()
+            if confirm not in ("y", "yes"):
+                state.console.print("Deletion aborted.")
+                return
+
+        state.profile_service.delete_profile(profile.id)
+        state.console.print(f"Voice profile '{profile.name}' deleted.")
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+

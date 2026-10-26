@@ -1,45 +1,159 @@
-"""System management screens: Model status, Doctor diagnostics, and Storage reporting."""
+"""System management screens: Model status, Free GPU, Doctor, and Storage (S-50 to S-56)."""
 
 from typing import Any
 
 import questionary
+from rich.table import Table
 
-from voxclone.services.system_service import get_storage_report, run_doctor
+from voxclone.services.system_service import (
+    fetch_models,
+    get_storage_report,
+    run_doctor,
+)
 from voxclone.ui.components import render_header, render_panel, render_table
 from voxclone.ui.menu import select
 from voxclone.ui.theme import badge
 
 
 def screen_model_status(state: Any) -> None:
-    """Display current neural model residency and GPU memory usage (S-51 stub)."""
-    model_name = "No model is loaded"
-    vram_detail = "unknown"
+    """Display current neural model residency and GPU memory usage (S-51)."""
+    state.console.clear() if not state.plain else None
+    render_header(state.console, state)
 
-    if hasattr(state, "model_manager") and state.model_manager is not None:
-        if state.model_manager.resident_model_key:
-            model_name = f"Resident model: {state.model_manager.resident_model_key}"
-        free_mb = state.model_manager.get_free_vram_mb()
-        if free_mb is not None:
-            vram_detail = f"{free_mb} MB ({round(free_mb / 1024, 2)} GB)"
+    status = state.model_service.get_status() if hasattr(state, "model_service") and state.model_service else None
 
-    render_panel(
+    if status is None:
+        resident = "No model manager active"
+        device = "unknown"
+        vram_info = "n/a"
+    else:
+        resident = status.resident_key or "(none — memory clean)"
+        device = status.device
+        if status.vram_free_mb is not None and status.vram_total_mb is not None:
+            vram_info = f"{status.vram_free_mb} MB free / {status.vram_total_mb} MB total ({status.vram_used_mb} MB used)"
+        else:
+            vram_info = "CPU execution mode (VRAM not tracked)"
+
+    lines = [
+        f"[bold cyan]Active Resident Model :[/bold cyan] [bold]{resident}[/bold]",
+        f"[bold cyan]Target Compute Device :[/bold cyan] {device}",
+        f"[bold cyan]Hardware VRAM Status  :[/bold cyan] {vram_info}",
+        f"[bold cyan]Keep-Warm Retention   :[/bold cyan] {'Enabled (resident until switch)' if getattr(status, 'keep_warm', True) else 'Disabled (unload per job)'}",
+        f"[bold cyan]Execution Mode        :[/bold cyan] {getattr(status, 'engine_mode', 'standard')}",
+        "",
+        "[dim]Rule: Strictly <= 1 neural model resides in VRAM to prevent memory collisions.[/dim]",
+    ]
+    render_panel(state.console, "Neural Model & Hardware Status (S-51)", lines, kind="info", plain=state.plain)
+
+    # Render recent model lifecycle events table
+    if hasattr(state, "model_service") and state.model_service:
+        events = state.model_service.get_recent_events(limit=8)
+        if events:
+            if state.plain:
+                state.console.print("\n--- Recent Model Lifecycle Events ---")
+                for ev in events:
+                    dur = f"{ev.duration_ms}ms" if ev.duration_ms is not None else "-"
+                    vram_delta = f"{ev.vram_free_before_mb}->{ev.vram_free_after_mb}MB" if ev.vram_free_before_mb is not None else "-"
+                    state.console.print(f"  {ev.created_at[:19]} | {ev.action:<6} | {ev.model_key:<7} | {dur:<7} | {vram_delta}")
+            else:
+                table = Table(title="Recent Model Lifecycle Events", box=None, show_header=True)
+                table.add_column("Timestamp", style="dim", width=20)
+                table.add_column("Action", style="bold", width=10)
+                table.add_column("Model", style="cyan", width=10)
+                table.add_column("Device", width=8)
+                table.add_column("Duration", style="green", width=10)
+                table.add_column("VRAM Delta", style="dim", width=18)
+
+                for ev in events:
+                    action_style = "bold green" if ev.action == "load" else ("bold yellow" if ev.action == "unload" else "bold red")
+                    dur_str = f"{ev.duration_ms} ms" if ev.duration_ms is not None else "-"
+                    vram_str = f"{ev.vram_free_before_mb} -> {ev.vram_free_after_mb} MB" if ev.vram_free_before_mb is not None else "-"
+                    table.add_row(
+                        ev.created_at[:19].replace("T", " "),
+                        f"[{action_style}]{ev.action}[/{action_style}]",
+                        ev.model_key,
+                        ev.device,
+                        dur_str,
+                        vram_str,
+                    )
+                state.console.print(table)
+
+    if not state.plain:
+        questionary.text("Press Enter to return...", qmark="→").ask()
+    else:
+        input("\nPress Enter to return...")
+
+
+def screen_free_gpu(state: Any) -> None:
+    """Manually unload any resident model and clear PyTorch CUDA caches (S-52)."""
+    state.console.clear() if not state.plain else None
+    render_header(state.console, state)
+
+    if not hasattr(state, "model_service") or not state.model_service:
+        render_panel(state.console, "Model Service Unavailable", ["Model service is not loaded."], kind="error", plain=state.plain)
+        if not state.plain:
+            questionary.text("Press Enter to return...", qmark="→").ask()
+        return
+
+    with state.console.status("[cyan]Unloading resident models and purging CUDA caches...[/cyan]"):
+        res = state.model_service.free_gpu_memory()
+
+    unloaded = res.get("unloaded_key") or "(no model was resident)"
+    freed_mb = res.get("freed_mb")
+    free_now_mb = res.get("free_now_mb")
+
+    lines = [
+        f"Unloaded Model : [bold]{unloaded}[/bold]",
+        f"Compute Device : {res.get('device', 'unknown')}",
+    ]
+    if freed_mb is not None:
+        lines.append(f"Reclaimed VRAM : [bold green]+{freed_mb} MB[/bold green]")
+    if free_now_mb is not None:
+        lines.append(f"Available Free : [bold cyan]{free_now_mb} MB[/bold cyan]")
+    lines.extend([
+        "",
+        "Garbage collection executed and CUDA tensor cache evacuated.",
+    ])
+
+    render_panel(state.console, "GPU Memory Evacuation Complete (S-52)", lines, kind="success", plain=state.plain)
+    if not state.plain:
+        questionary.text("Press Enter to continue...", qmark="→").ask()
+    else:
+        input("Press Enter to continue...")
+
+
+def screen_fetch_models(state: Any) -> None:
+    """Download or verify local presence of neural model weights."""
+    state.console.clear() if not state.plain else None
+    render_header(state.console, state)
+
+    state.console.print("[cyan]Verifying model weights for TTS, VC, and Emotion engines...[/cyan]")
+    results = fetch_models(state.config)
+
+    columns = ["Model Key", "Repository", "Status", "Detail"]
+    rows = []
+    for r in results:
+        status_str = "[bold green]READY[/bold green]" if r.ok else "[bold red]FAILED[/bold red]"
+        rows.append([r.model_key, r.repo_id, status_str, r.detail])
+
+    render_table(
         console=state.console,
-        title="Model Status (S-51)",
-        lines=[
-            f"Active Model: {model_name}",
-            f"Free VRAM:    {vram_detail}",
-            "",
-            "Models are loaded dynamically on demand and unloaded after processing.",
-        ],
-        kind="info",
+        title="Neural Weights Cache Verification",
+        columns=columns,
+        rows=rows,
         plain=state.plain,
     )
     if not state.plain:
-        questionary.press_any_key_to_continue("Press any key to return...").ask()
+        questionary.text("Press Enter to return...", qmark="→").ask()
+    else:
+        input("Press Enter to return...")
 
 
 def screen_doctor(state: Any) -> None:
     """Execute host and container pre-flight diagnostics and render results (S-53)."""
+    state.console.clear() if not state.plain else None
+    render_header(state.console, state)
+
     checks = run_doctor(state.config)
 
     columns = ["Check", "Status", "Detail", "Fix Hint"]
@@ -58,11 +172,16 @@ def screen_doctor(state: Any) -> None:
         plain=state.plain,
     )
     if not state.plain:
-        questionary.press_any_key_to_continue("Press any key to return...").ask()
+        questionary.text("Press Enter to return...", qmark="→").ask()
+    else:
+        input("Press Enter to return...")
 
 
 def screen_storage(state: Any) -> None:
     """Display disk space consumption across VoxClone data directories (S-56)."""
+    state.console.clear() if not state.plain else None
+    render_header(state.console, state)
+
     report = get_storage_report(state.config)
 
     columns = ["Storage Tier", "Disk Space (MB)"]
@@ -81,15 +200,19 @@ def screen_storage(state: Any) -> None:
         plain=state.plain,
     )
     if not state.plain:
-        questionary.press_any_key_to_continue("Press any key to return...").ask()
+        questionary.text("Press Enter to return...", qmark="→").ask()
+    else:
+        input("Press Enter to return...")
 
 
 def screen_system_menu(state: Any) -> None:
     """Render the System admin dropdown menu (S-50)."""
     choices = [
-        "Model status",
-        "Doctor (system checks)",
-        "Storage",
+        "Model status (S-51)",
+        "Free GPU memory (S-52)",
+        "Verify / Fetch model weights",
+        "Doctor (system checks) (S-53)",
+        "Storage utilization (S-56)",
         "Settings",
     ]
 
@@ -99,7 +222,7 @@ def screen_system_menu(state: Any) -> None:
 
         choice = select(
             state=state,
-            message="System Menu",
+            message="System Menu (S-50)",
             choices=choices,
             allow_back=True,
         )
@@ -107,11 +230,15 @@ def screen_system_menu(state: Any) -> None:
         if choice is None:
             break
 
-        if choice == "Model status":
+        if choice == "Model status (S-51)":
             screen_model_status(state)
-        elif choice == "Doctor (system checks)":
+        elif choice == "Free GPU memory (S-52)":
+            screen_free_gpu(state)
+        elif choice == "Verify / Fetch model weights":
+            screen_fetch_models(state)
+        elif choice == "Doctor (system checks) (S-53)":
             screen_doctor(state)
-        elif choice == "Storage":
+        elif choice == "Storage utilization (S-56)":
             screen_storage(state)
         elif choice == "Settings":
             render_panel(
@@ -125,4 +252,6 @@ def screen_system_menu(state: Any) -> None:
                 plain=state.plain,
             )
             if not state.plain:
-                questionary.press_any_key_to_continue("Press any key to return...").ask()
+                questionary.text("Press Enter to return...", qmark="→").ask()
+            else:
+                input("Press Enter to return...")

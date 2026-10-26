@@ -48,17 +48,20 @@ def render_header(console: Console, state: Any) -> None:
 
     # Device & Model info
     device_name = "auto"
-    if hasattr(state, "config") and state.config:
-        device_name = state.config.env_overrides.get("device", "auto")
-
-    # Model manager status
     model_name = "none"
-    vram_text = "unknown"
+    vram_text = "n/a"
+
     if hasattr(state, "model_manager") and state.model_manager is not None:
-        model_name = state.model_manager.resident_model_key or "none"
-        free_mb = state.model_manager.get_free_vram_mb()
-        if free_mb is not None:
-            vram_text = f"{round(free_mb / 1024, 1)} GB free"
+        try:
+            status = state.model_manager.status()
+            model_name = status.resident_key or "none"
+            device_name = status.device
+            if status.vram_free_mb is not None:
+                vram_text = f"{round(status.vram_free_mb / 1024, 1)} GB free"
+        except Exception:
+            pass
+    elif hasattr(state, "config") and state.config:
+        device_name = state.config.env_overrides.get("device", state.config.device)
 
     if getattr(state, "plain", False):
         console.print(f"=== {APP_NAME} v{__version__} ===")
@@ -84,6 +87,21 @@ def render_header(console: Console, state: Any) -> None:
             expand=False,
         )
     )
+
+
+def render_model_loading_banner(
+    console: Console,
+    model_key: str,
+    estimated_mb: int,
+    plain: bool = False,
+) -> None:
+    """Render a transient banner when an AI neural model is loading into VRAM."""
+    msg = f"Loading model '{model_key}' into memory (~{estimated_mb} MB VRAM)..."
+    if plain:
+        console.print(f"[MODEL LOAD] {msg}")
+    else:
+        console.print(f"[bold yellow]⏳ {msg}[/bold yellow]")
+
 
 
 def render_panel(
