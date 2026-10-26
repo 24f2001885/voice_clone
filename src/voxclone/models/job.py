@@ -32,6 +32,11 @@ class Job:
     elapsed_ms: int | None = None
     real_time_factor: float | None = None
 
+    @property
+    def input_audio_path(self) -> Path | None:
+        """Alias property for input_path when job is recording-to-voice."""
+        return self.input_path
+
     @classmethod
     def from_row(cls, row: Mapping[str, Any] | sqlite3.Row) -> Job:
         """Construct a Job model from a SQLite row mapping."""

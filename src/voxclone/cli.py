@@ -638,3 +638,72 @@ def speak(
             session.close(state)
 
 
+@app.command("convert")
+def convert(
+    profile: Annotated[str, typer.Option("--profile", "-p", help="Target voice profile name or ID")],
+    input_file: Annotated[Path, typer.Option("--input", "-i", help="Path to source audio recording")],
+    save: Annotated[bool, typer.Option("--save", help="Save output to audio file (.wav)")] = False,
+    play: Annotated[bool, typer.Option("--play", help="Play output audio")] = False,
+    both: Annotated[bool, typer.Option("--both", help="Save output to file and play")] = False,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+    ctx: typer.Context = None,  # type: ignore[assignment]
+) -> None:
+    """Convert a source audio recording to match an enrolled voice profile identity."""
+    cli_ctx: CliContext = (ctx.find_root().obj if ctx else None) or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    if not input_file.is_file():
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        console.print(f"Error: Input recording file not found: {input_file}")
+        sys.exit(1)
+
+    output_mode = "save"
+    if both:
+        output_mode = "both"
+    elif play:
+        output_mode = "play"
+    elif save:
+        output_mode = "save"
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        try:
+            prof = state.profile_service.get_profile(profile)
+        except Exception:
+            console = make_console(get_theme(plain=is_plain), plain=is_plain)
+            console.print(f"Error: Voice profile '{profile}' not found. Run 'voxclone profiles enroll' first.")
+            sys.exit(1)
+
+        job_service = JobService(
+            conn=state.conn,
+            config=state.config,
+            model_manager=state.model_manager,
+        )
+        job = job_service.create_recording_job(
+            profile_id=prof.id,
+            input_audio_path=input_file,
+            output_mode=output_mode,
+        )
+
+        for event in job_service.run_job(job.id):
+            if is_plain:
+                state.console.print(f"[{event.stage}] {event.message}")
+            else:
+                state.console.print(f"• [cyan]{event.stage}:[/cyan] {event.message}")
+            if event.stage == "done" and event.result and event.result.output_path:
+                state.console.print(f"Output generated: {event.result.output_path}")
+            elif event.stage in ("failed", "cancelled"):
+                sys.exit(1)
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+
