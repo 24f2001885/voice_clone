@@ -9,17 +9,21 @@ class VoxcloneError(Exception):
     code: str = "VX-900"
     default_message: str = "Unexpected internal error"
     default_hint: str = "See log file path shown"
+    recovery_actions: tuple[str, ...] = ("log_path",)
 
     def __init__(
         self,
         message: str | None = None,
         hint: str | None = None,
         code: str | None = None,
+        recovery_actions: tuple[str, ...] | None = None,
     ) -> None:
         self.message: str = message if message is not None else self.default_message
         self.hint: str = hint if hint is not None else self.default_hint
         if code is not None:
             self.code = code
+        if recovery_actions is not None:
+            self.recovery_actions = recovery_actions
         super().__init__(self.__str__())
 
     @property
@@ -33,6 +37,7 @@ class VoxcloneError(Exception):
             "error_code": self.code,
             "message": self.message,
             "hint": self.hint,
+            "recovery_actions": list(self.recovery_actions),
         }
 
     def __str__(self) -> str:
@@ -45,6 +50,7 @@ class SampleTooShortError(VoxcloneError):
     code = "VX-101"
     default_message = "Sample too short or mostly silent"
     default_hint = "Record 20-30 s of clear speech"
+    recovery_actions: tuple[str, ...] = ("log_path",)
 
 
 class UnsupportedAudioError(VoxcloneError):
@@ -53,6 +59,7 @@ class UnsupportedAudioError(VoxcloneError):
     code = "VX-102"
     default_message = "Unsupported or corrupt audio file"
     default_hint = "Convert to wav and retry"
+    recovery_actions: tuple[str, ...] = ("log_path",)
 
 
 class ConsentRequiredError(VoxcloneError):
@@ -61,6 +68,7 @@ class ConsentRequiredError(VoxcloneError):
     code = "VX-103"
     default_message = "Consent not confirmed"
     default_hint = "Confirm you own or have permission for this voice"
+    recovery_actions: tuple[str, ...] = ("log_path",)
 
 
 class InvalidTextError(VoxcloneError):
@@ -69,6 +77,7 @@ class InvalidTextError(VoxcloneError):
     code = "VX-201"
     default_message = "Text empty or too long"
     default_hint = "Shorten or split input"
+    recovery_actions: tuple[str, ...] = ("log_path",)
 
 
 class NoSpeechDetectedError(VoxcloneError):
@@ -77,6 +86,7 @@ class NoSpeechDetectedError(VoxcloneError):
     code = "VX-210"
     default_message = "No speech detected in input"
     default_hint = "Check the file or microphone"
+    recovery_actions: tuple[str, ...] = ("doctor", "log_path")
 
 
 class InsufficientVramError(VoxcloneError):
@@ -85,6 +95,7 @@ class InsufficientVramError(VoxcloneError):
     code = "VX-300"
     default_message = "Not enough GPU memory for model"
     default_hint = "Close GPU apps; run Free GPU memory"
+    recovery_actions: tuple[str, ...] = ("free_gpu", "doctor", "log_path")
 
 
 class ChunkOutOfMemoryError(VoxcloneError):
@@ -93,6 +104,7 @@ class ChunkOutOfMemoryError(VoxcloneError):
     code = "VX-301"
     default_message = "Out of memory during a chunk"
     default_hint = "Resume the job; lower chunk length"
+    recovery_actions: tuple[str, ...] = ("resume", "free_gpu", "log_path")
 
 
 class GpuUnavailableError(VoxcloneError):
@@ -101,6 +113,7 @@ class GpuUnavailableError(VoxcloneError):
     code = "VX-302"
     default_message = "GPU not available"
     default_hint = "Run Doctor; CPU mode is much slower"
+    recovery_actions: tuple[str, ...] = ("doctor", "free_gpu", "log_path")
 
 
 class ModelWeightsMissingError(VoxcloneError):
@@ -109,6 +122,7 @@ class ModelWeightsMissingError(VoxcloneError):
     code = "VX-310"
     default_message = "Model weights missing"
     default_hint = "Run `system fetch-models` while online"
+    recovery_actions: tuple[str, ...] = ("fetch_models", "doctor", "log_path")
 
 
 class MicrophoneUnavailableError(VoxcloneError):
@@ -117,6 +131,7 @@ class MicrophoneUnavailableError(VoxcloneError):
     code = "VX-401"
     default_message = "Microphone unavailable"
     default_hint = "Run Doctor; use a file instead"
+    recovery_actions: tuple[str, ...] = ("doctor", "log_path")
 
 
 class SpeakerUnavailableError(VoxcloneError):
@@ -125,6 +140,7 @@ class SpeakerUnavailableError(VoxcloneError):
     code = "VX-402"
     default_message = "Speaker unavailable"
     default_hint = "Output was saved; play it from Windows"
+    recovery_actions: tuple[str, ...] = ("doctor", "log_path")
 
 
 class JobInterruptedError(VoxcloneError):
@@ -133,6 +149,7 @@ class JobInterruptedError(VoxcloneError):
     code = "VX-500"
     default_message = "Job interrupted"
     default_hint = "Choose Resume"
+    recovery_actions: tuple[str, ...] = ("resume", "log_path")
 
 
 class InternalError(VoxcloneError):
@@ -141,6 +158,7 @@ class InternalError(VoxcloneError):
     code = "VX-900"
     default_message = "Unexpected internal error"
     default_hint = "See log file path shown"
+    recovery_actions: tuple[str, ...] = ("log_path",)
 
 
 ERROR_CODES: dict[str, type[VoxcloneError]] = {
