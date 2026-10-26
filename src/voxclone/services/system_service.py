@@ -313,3 +313,101 @@ def get_storage_report(config: AppConfig) -> StorageReport:
         models_mb=dir_size_mb(hf_home),
         work_mb=dir_size_mb(config.work_dir),
     )
+
+
+@dataclass(frozen=True)
+class ModelFetchResult:
+    """Status report for a model weights download attempt."""
+
+    model_key: str
+    repo_id: str
+    ok: bool
+    detail: str
+
+
+MODEL_REPOS: dict[str, str] = {
+    "tts": "SWivid/F5-TTS",
+    "vc": "myshell-ai/OpenVoiceV2",
+    "emotion": "j-hartmann/emotion-english-distilroberta-base",
+}
+
+
+def fetch_models(
+    config: AppConfig,
+    keys: list[str] | None = None,
+) -> list[ModelFetchResult]:
+    """Download or verify local presence of AI model weights from Hugging Face."""
+    target_keys = keys or ["tts", "vc", "emotion"]
+    results: list[ModelFetchResult] = []
+
+    hf_home = Path(os.environ.get("HF_HOME", str(config.models_dir))).resolve()
+    hf_home.mkdir(parents=True, exist_ok=True)
+
+    if config.engine_mode == "fake":
+        for k in target_keys:
+            repo = MODEL_REPOS.get(k, f"mock/{k}")
+            results.append(
+                ModelFetchResult(
+                    model_key=k,
+                    repo_id=repo,
+                    ok=True,
+                    detail="Engine mode is 'fake'; mock weights verified without network transfer.",
+                )
+            )
+        return results
+
+    try:
+        from huggingface_hub import snapshot_download  # type: ignore[import-untyped]
+    except ImportError:
+        for k in target_keys:
+            repo = MODEL_REPOS.get(k, "unknown")
+            results.append(
+                ModelFetchResult(
+                    model_key=k,
+                    repo_id=repo,
+                    ok=False,
+                    detail="huggingface_hub package is not installed.",
+                )
+            )
+        return results
+
+    for k in target_keys:
+        repo = MODEL_REPOS.get(k)
+        if not repo:
+            results.append(
+                ModelFetchResult(
+                    model_key=k,
+                    repo_id="unknown",
+                    ok=False,
+                    detail=f"No Hugging Face repository mapping found for key '{k}'.",
+                )
+            )
+            continue
+
+        try:
+            snapshot_download(
+                repo_id=repo,
+                local_dir=hf_home / k,
+                local_dir_use_symlinks=False,
+                resume_download=True,
+            )
+            results.append(
+                ModelFetchResult(
+                    model_key=k,
+                    repo_id=repo,
+                    ok=True,
+                    detail=f"Weights successfully verified and cached in {hf_home / k}.",
+                )
+            )
+        except Exception as exc:
+            results.append(
+                ModelFetchResult(
+                    model_key=k,
+                    repo_id=repo,
+                    ok=False,
+                    detail=f"Download failed: {exc!s}",
+                )
+            )
+
+    return results
+

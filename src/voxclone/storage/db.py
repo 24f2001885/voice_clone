@@ -30,6 +30,17 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 @contextmanager
+def get_db(db_path: Path) -> Generator[sqlite3.Connection, None, None]:
+    """Context manager providing an active SQLite connection, closing it upon exit."""
+    conn = connect(db_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+
+@contextmanager
 def transaction(conn: sqlite3.Connection) -> Generator[sqlite3.Connection, None, None]:
     """Provide a transactional scope around a series of operations."""
     if not conn.in_transaction:

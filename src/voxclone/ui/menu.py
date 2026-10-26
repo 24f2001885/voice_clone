@@ -18,6 +18,8 @@ MAIN_MENU_ITEMS: list[tuple[str, str | None]] = [
     ("Voice profiles", "voxclone.ui.screens.profiles:screen_profiles"),
     ("Job history", "voxclone.ui.screens.job_history:screen_job_history"),
     ("System", "voxclone.ui.screens.system:screen_system_menu"),
+    ("Help", "voxclone.ui.screens.welcome:screen_help"),
+    ("About", "voxclone.ui.screens.welcome:screen_about"),
     ("Exit", None),
 ]
 

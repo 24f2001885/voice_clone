@@ -147,3 +147,43 @@ def write_wav() -> Callable[[Path, np.ndarray, int], Path]:
         return path
 
     return _writer
+
+
+@pytest.fixture
+def model_manager(app_config: AppConfig, db_conn: Any) -> Generator[Any, None, None]:
+    """Provide an isolated ModelManager instance."""
+    from voxclone.engines.model_manager import ModelManager
+
+    mgr = ModelManager(config=app_config, db_path=app_config.db_path)
+    try:
+        yield mgr
+    finally:
+        mgr.close()
+
+
+@pytest.fixture
+def profile_service(app_config: AppConfig, db_conn: Any) -> Any:
+    """Provide a configured ProfileService instance."""
+    from voxclone.services.profile_service import ProfileService
+
+    return ProfileService(db_path=app_config.db_path, profiles_dir=app_config.profiles_dir)
+
+
+@pytest.fixture
+def reference_wav(tmp_path: Path, make_speech: Callable[..., SpeechArray], write_wav: Callable[..., Path]) -> Path:
+    """Provide a valid 15-second synthetic speech reference WAV file."""
+    audio = make_speech(duration_sec=15.0, gap_sec=0.2, sr=24000)
+    target = tmp_path / "reference_speech.wav"
+    return write_wav(target, audio, sr=24000)
+
+
+@pytest.fixture
+def make_profile(profile_service: Any, reference_wav: Path) -> Callable[[str], Any]:
+    """Factory fixture to quickly create and enroll an active test voice profile."""
+
+    def _factory(name: str = "TestVoice") -> Any:
+        prepared = profile_service.prepare_from_file(reference_wav)
+        return profile_service.save_profile(name=name, prepared=prepared, consent_confirmed=True)
+
+    return _factory
+

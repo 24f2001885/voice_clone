@@ -54,6 +54,52 @@ class AppConfig:
     no_color: bool
     env_overrides: dict[str, object] = field(default_factory=dict)
 
+    @property
+    def device(self) -> str:
+        """Configured hardware acceleration device ('auto', 'cuda', 'cpu')."""
+        return str(self.env_overrides.get("device", "auto"))
+
+    @property
+    def vram_budget_mb(self) -> int:
+        """Target maximum GPU VRAM allocation budget in megabytes (MB)."""
+        return int(self.env_overrides.get("vram_budget_mb", 6000))
+
+    @property
+    def keep_warm(self) -> bool:
+        """Whether to retain neural model resident in memory between consecutive tasks."""
+        return bool(self.env_overrides.get("keep_warm", True))
+
+    @property
+    def models_dir(self) -> Path:
+        """Local filesystem directory for neural model checkpoints."""
+        return Path(os.environ.get("HF_HOME", "/models"))
+
+    @property
+    def workers(self) -> int:
+        """Number of CPU worker subprocesses for audio DSP."""
+        return int(self.env_overrides.get("workers", 0))
+
+    @property
+    def chunk_min_sec(self) -> float:
+        """Minimum duration of audio chunk in seconds."""
+        return float(self.env_overrides.get("chunk_min_sec", 3.0))
+
+    @property
+    def chunk_max_sec(self) -> float:
+        """Maximum duration of audio chunk in seconds."""
+        return float(self.env_overrides.get("chunk_max_sec", 5.0))
+
+    @property
+    def crossfade_ms(self) -> int:
+        """Audio chunk overlap crossfade duration in milliseconds."""
+        return int(self.env_overrides.get("crossfade_ms", 30))
+
+    @property
+    def sentence_max_chars(self) -> int:
+        """Maximum character count for sentence chunking in TTS."""
+        return int(self.env_overrides.get("sentence_max_chars", 200))
+
+
 
 _CACHED_CONFIG: AppConfig | None = None
 

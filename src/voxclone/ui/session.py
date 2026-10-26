@@ -33,7 +33,9 @@ class SessionState:
     debug: bool = False
     plain: bool = False
 
-    model_manager: Any = None  # Initialized in Phase P1
+    model_manager: Any = None
+    model_service: Any = None
+    profile_service: Any = None
     settings_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
@@ -101,6 +103,15 @@ def bootstrap(debug: bool = False, plain: bool = False) -> SessionState:
     theme = get_theme(plain=is_plain, no_color=config.no_color)
     console = make_console(theme=theme, plain=is_plain)
 
+    # 6. Initialize Model Manager and Services
+    from voxclone.engines.model_manager import ModelManager
+    from voxclone.services.model_service import ModelService
+    from voxclone.services.profile_service import ProfileService
+
+    model_mgr = ModelManager(config=config, db_path=config.db_path)
+    model_svc = ModelService(model_manager=model_mgr, db_path=config.db_path)
+    profile_svc = ProfileService(db_path=config.db_path, profiles_dir=config.profiles_dir)
+
     state = SessionState(
         config=config,
         conn=conn,
@@ -108,6 +119,9 @@ def bootstrap(debug: bool = False, plain: bool = False) -> SessionState:
         console=console,
         debug=is_debug,
         plain=is_plain,
+        model_manager=model_mgr,
+        model_service=model_svc,
+        profile_service=profile_svc,
         settings_snapshot=settings_snapshot,
     )
     log_event("voxclone", "INFO", "app_bootstrap_completed")
@@ -115,7 +129,13 @@ def bootstrap(debug: bool = False, plain: bool = False) -> SessionState:
 
 
 def close(state: SessionState) -> None:
-    """Close active database connection and flush logs."""
+    """Release model manager resources, close database connection, and flush logs."""
+    try:
+        if state.model_manager:
+            state.model_manager.close()
+    except Exception:
+        pass
+
     try:
         if state.conn:
             state.conn.close()
