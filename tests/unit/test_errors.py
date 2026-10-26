@@ -14,6 +14,10 @@ from voxclone.errors import (
     MicrophoneUnavailableError,
     ModelWeightsMissingError,
     NoSpeechDetectedError,
+    RemoteDriveNotMountedError,
+    RemoteQueueTimeoutError,
+    RemoteWorkerInternalError,
+    RemoteWorkerOfflineError,
     SampleTooShortError,
     SpeakerUnavailableError,
     UnsupportedAudioError,
@@ -31,6 +35,10 @@ EXPECTED_ERROR_SPECS: list[tuple[type[VoxcloneError], str]] = [
     (ChunkOutOfMemoryError, "VX-301"),
     (GpuUnavailableError, "VX-302"),
     (ModelWeightsMissingError, "VX-310"),
+    (RemoteWorkerOfflineError, "VX-320"),
+    (RemoteQueueTimeoutError, "VX-321"),
+    (RemoteDriveNotMountedError, "VX-322"),
+    (RemoteWorkerInternalError, "VX-323"),
     (MicrophoneUnavailableError, "VX-401"),
     (SpeakerUnavailableError, "VX-402"),
     (JobInterruptedError, "VX-500"),
@@ -80,9 +88,9 @@ def test_error_recovery_actions_completeness() -> None:
 
 
 def test_error_codes_uniqueness() -> None:
-    """Verify that ERROR_CODES registry contains exactly 13 unique codes."""
-    assert len(ERROR_CODES) == 13
-    assert len(set(ERROR_CODES.keys())) == 13
+    """Verify that ERROR_CODES registry contains exactly 17 unique codes."""
+    assert len(ERROR_CODES) == 17
+    assert len(set(ERROR_CODES.keys())) == 17
     for cls, expected_code in EXPECTED_ERROR_SPECS:
         assert ERROR_CODES[expected_code] is cls
 

@@ -11,4 +11,3 @@ librosa>=0.10.1             # Audio resampling, RMS energy, silence detection
 
 # AI / ML Inference (Runtime Engines)
 transformers>=4.40.0        # Emotion classification pipeline
-chatterbox-tts>=0.1.0       # TTS synthesis and zero-shot voice conversion

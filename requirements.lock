@@ -10,7 +10,6 @@ audioread==3.0.1
     # via librosa
 cffi==1.17.1
     # via sounddevice
-chatterbox-tts==0.1.6
     # via -r requirements.in
 click==8.1.8
     # via typer
@@ -85,7 +84,6 @@ prompt-toolkit==3.0.50
 pycparser==2.22
     # via cffi
 pydantic==2.10.6
-    # via chatterbox-tts
 pydantic-core==2.27.2
     # via pydantic
 pygments==2.19.1
@@ -121,7 +119,7 @@ soundfile==0.13.1
     #   librosa
 soxr==0.5.0.post1
     # via librosa
-sympy==1.13.3
+sympy==1.13.1
     # via torch
 threadpoolctl==3.5.0
     # via scikit-learn
@@ -129,10 +127,8 @@ tokenizers==0.21.0
     # via transformers
 torch==2.6.0
     # via
-    #   chatterbox-tts
     #   torchaudio
 torchaudio==2.6.0
-    # via chatterbox-tts
 tqdm==4.67.1
     # via
     #   huggingface-hub

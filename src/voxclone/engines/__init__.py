@@ -15,6 +15,25 @@ def build_engine(model_key: str, config: AppConfig) -> ModelEngine:
     Returns:
         Unloaded ModelEngine instance.
     """
+    # Remote GPU execution via Google Drive queue
+    if getattr(config, "backend", "local") == "remote_drive" or config.engine_mode == "remote_drive":
+        if model_key == "tts":
+            from voxclone.engines.remote_tts import RemoteTts
+
+            return RemoteTts(drive_dir=config.drive_dir)  # type: ignore[return-value]
+        if model_key == "vc":
+            from voxclone.engines.remote_vc import RemoteVc
+
+            return RemoteVc(drive_dir=config.drive_dir)  # type: ignore[return-value]
+        if model_key == "emotion":
+            if config.engine_mode == "fake":
+                from voxclone.engines.fake_engines import FakeEmotion
+
+                return FakeEmotion()
+            from voxclone.engines.real_emotion import RealEmotion
+
+            return RealEmotion()  # type: ignore[no-any-return]
+
     if config.engine_mode == "fake":
         from voxclone.engines.fake_engines import FakeEmotion, FakeTts, FakeVc
 
