@@ -187,3 +187,11 @@ def find_stale_running(conn: sqlite3.Connection) -> list[Job]:
     cursor.execute("SELECT * FROM jobs WHERE status = 'running' ORDER BY created_at ASC")
     rows = cursor.fetchall()
     return [Job.from_row(row) for row in rows]
+
+
+def update_job_status(conn: sqlite3.Connection, job_id: str, status: str) -> None:
+    """Update status of a specific job."""
+    cursor = conn.cursor()
+    cursor.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
+    conn.commit()
+

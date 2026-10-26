@@ -150,6 +150,15 @@ def test_cli_speak_success(reference_wav: Path) -> None:
     assert "Output generated:" in result.stdout
 
 
+def test_cli_system_benchmark() -> None:
+    """Verify voxclone system benchmark command executes and prints report."""
+    result = runner.invoke(app, ["system", "benchmark", "--duration", "2.0", "--plain"])
+    assert result.exit_code == 0
+    assert "Performance Benchmark" in result.stdout
+    assert "Real-Time Factor" in result.stdout
+
+
+
 def test_cli_speak_auto_emotion_and_preview(reference_wav: Path) -> None:
     """Invoking speak with --emotion auto and --show-emotions runs cleanly."""
     runner.invoke(
@@ -216,6 +225,15 @@ def test_cli_convert_success(reference_wav: Path) -> None:
     )
     assert result.exit_code == 0
     assert "Output generated:" in result.stdout
+
+
+def test_cli_system_benchmark() -> None:
+    """Verify voxclone system benchmark command executes and prints report."""
+    result = runner.invoke(app, ["system", "benchmark", "--duration", "2.0", "--plain"])
+    assert result.exit_code == 0
+    assert "Performance Benchmark" in result.stdout
+    assert "Real-Time Factor" in result.stdout
+
 
 
 

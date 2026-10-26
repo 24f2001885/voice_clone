@@ -1,10 +1,13 @@
 """Doctor pre-flight diagnostics and storage utilization reporting."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
+from typing import Any
 
 from voxclone.config import AppConfig
 from voxclone.storage.files import dir_size_mb
@@ -410,4 +413,70 @@ def fetch_models(
             )
 
     return results
+
+
+def startup_sweep(conn: Any, config: AppConfig) -> dict[str, int]:
+    """Execute startup housekeeping: mark stale running jobs, sweep old work dirs and retention rows.
+
+    Args:
+        conn: SQLite database connection.
+        config: Application configuration.
+
+    Returns:
+        Summary metrics dictionary of cleaned artifacts.
+    """
+    from voxclone.constants import (
+        CHUNK_ROW_RETENTION_DAYS,
+        MODEL_EVENT_RETENTION_DAYS,
+        WORK_DIR_MAX_AGE_HOURS,
+    )
+    from voxclone.storage import jobs_repo
+
+    # 1. Clean stale running jobs from crashes
+    stale_jobs = jobs_repo.find_stale_running(conn)
+    for j in stale_jobs:
+        jobs_repo.mark_finished(
+            conn=conn,
+            job_id=j.id,
+            status="failed",
+            error_code="VX-500",
+            error_message="Interrupted by system shutdown or termination. Ready to resume.",
+        )
+
+    # 2. Sweep old temporary work directories
+    dirs_removed = 0
+    now_ts = time.time()
+    max_age_sec = WORK_DIR_MAX_AGE_HOURS * 3600
+
+    if config.work_dir.is_dir():
+        for item in config.work_dir.iterdir():
+            if item.is_dir():
+                try:
+                    mtime = item.stat().st_mtime
+                    if (now_ts - mtime) > max_age_sec:
+                        shutil.rmtree(item, ignore_errors=True)
+                        dirs_removed += 1
+                except OSError:
+                    pass
+
+    # 3. Retention policy deletions
+    cursor = conn.cursor()
+    cursor.execute(
+        f"DELETE FROM job_chunks WHERE job_id IN (SELECT id FROM jobs WHERE created_at < datetime('now', '-{CHUNK_ROW_RETENTION_DAYS} days'))"
+    )
+    chunks_deleted = cursor.rowcount
+
+    cursor.execute(
+        f"DELETE FROM model_events WHERE created_at < datetime('now', '-{MODEL_EVENT_RETENTION_DAYS} days')"
+    )
+    events_deleted = cursor.rowcount
+    conn.commit()
+
+    return {
+        "interrupted_jobs_cleaned": len(stale_jobs),
+        "stale_work_dirs_removed": dirs_removed,
+        "expired_chunks_deleted": chunks_deleted,
+        "expired_events_deleted": events_deleted,
+    }
+
 

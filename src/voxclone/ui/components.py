@@ -178,14 +178,22 @@ def render_error(
     theme: Theme | None = None,
 ) -> None:
     """Render standardized error message and action hint."""
-    err_icon, _, err_style = badge("error", theme=theme)
+    from voxclone.ui.theme import ASCII_ICONS, get_theme
 
-    if console.no_color:
+    effective_theme = theme if theme is not None else get_theme(plain=console.no_color, no_color=console.no_color)
+    err_icon, _, err_style = badge("error", theme=effective_theme)
+
+    if console.no_color or effective_theme.plain:
+        err_icon = ASCII_ICONS.get("error", "[X]")
         console.print(f"{err_icon} {err.message} ({err.code})")
         if err.hint:
             console.print(f"  -> {err.hint}")
     else:
-        console.print(f"[{err_style}]{err_icon} {err.message} ({err.code})[/{err_style}]")
+        try:
+            console.print(f"[{err_style}]{err_icon} {err.message} ({err.code})[/{err_style}]")
+        except UnicodeEncodeError:
+            err_icon = ASCII_ICONS.get("error", "[X]")
+            console.print(f"{err_icon} {err.message} ({err.code})")
         if err.hint:
             console.print(f"  [dim cyan]-> {err.hint}[/dim cyan]")
 

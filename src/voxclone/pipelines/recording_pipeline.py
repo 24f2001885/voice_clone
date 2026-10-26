@@ -152,6 +152,13 @@ def run_recording_pipeline(
                 )
                 return
 
+            # Resume check: If chunk was already converted and output file exists, reuse it
+            existing = chunks_repo.get_chunk(conn, job.id, i)
+            if existing and existing.status == "converted" and existing.output_path and Path(existing.output_path).is_file():
+                logger.info("Chunk %d already converted, reusing for resume: %s", i, existing.output_path)
+                post_paths.append(Path(existing.output_path))
+                continue
+
             yield ProgressEvent(
                 stage="converting",
                 chunk_index=i,

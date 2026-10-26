@@ -342,6 +342,109 @@ def system_status(
             session.close(state)
 
 
+@system_app.command("benchmark")
+def system_benchmark(
+    ctx: typer.Context,
+    duration: Annotated[float, typer.Option("--duration", "-d", help="Synthetic audio duration in seconds")] = 5.0,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+) -> None:
+    """Execute performance benchmark measuring audio throughput and RTF."""
+    cli_ctx: CliContext = ctx.find_root().obj or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        import time
+        import numpy as np
+        import soundfile as sf
+        from rich.table import Table
+
+        console = state.console
+        console.print(f"[cyan]Running benchmark with {duration:.1f}s synthetic audio...[/cyan]")
+
+        sr = 24000
+        # Profile reference audio requires minimum 10.0s of active speech for validation
+        rng = np.random.default_rng(42)
+        ref_samples = []
+        cur_t = 0.0
+        while cur_t < 16.0:
+            burst_dur = float(rng.uniform(0.3, 0.6))
+            if cur_t + burst_dur > 16.0:
+                burst_dur = 16.0 - cur_t
+            n = int(burst_dur * sr)
+            if n > 0:
+                f = float(rng.uniform(150.0, 300.0))
+                tt = np.linspace(0, burst_dur, n, endpoint=False, dtype=np.float32)
+                env = np.hanning(n).astype(np.float32)
+                ref_samples.append((0.7 * np.sin(2 * np.pi * f * tt) * env).astype(np.float32))
+                cur_t += burst_dur
+            if cur_t + 0.15 < 16.0:
+                ref_samples.append(np.zeros(int(0.15 * sr), dtype=np.float32))
+                cur_t += 0.15
+        ref_audio = np.concatenate(ref_samples).astype(np.float32)
+
+        # Input audio duration for RTF measurement
+        in_t = np.linspace(0, duration, int(sr * duration), endpoint=False, dtype=np.float32)
+        in_audio = (0.3 * np.sin(2 * np.pi * 330.0 * in_t)).astype(np.float32)
+
+        test_dir = state.config.work_dir / "benchmark"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        ref_wav = test_dir / "bench_ref.wav"
+        in_wav = test_dir / "bench_in.wav"
+        sf.write(str(ref_wav), ref_audio, sr)
+        sf.write(str(in_wav), in_audio, sr)
+
+        profile = state.profile_service.enroll_from_file(
+            name="BenchProfile",
+            source_path=ref_wav,
+            consent_confirmed=True,
+        )
+
+        job_svc = state.job_service
+        t0 = time.perf_counter()
+        job = job_svc.create_recording_job(profile_id=profile.id, input_audio_path=in_wav)
+        for _ in job_svc.run_job(job.id):
+            pass
+        elapsed_sec = time.perf_counter() - t0
+        rtf = elapsed_sec / max(0.001, duration)
+
+        try:
+            state.profile_service.delete_profile(profile.id)
+            if in_wav.exists():
+                in_wav.unlink()
+            if ref_wav.exists():
+                ref_wav.unlink()
+        except Exception:
+            pass
+
+        table = Table(title="VoxClone Performance Benchmark", expand=False)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="bold green")
+        table.add_row("Input Audio Duration", f"{duration:.2f} s")
+        table.add_row("Processing Elapsed Time", f"{elapsed_sec:.2f} s")
+        table.add_row("Real-Time Factor (RTF)", f"{rtf:.2f}x")
+        table.add_row("Performance Status", "FAST (RTF < 1.0)" if rtf < 1.0 else "NORMAL")
+        console.print(table)
+
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    except Exception as exc:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        err = InternalError(f"Benchmark failed: {exc!s}")
+        err.__cause__ = exc
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
+
+
 @profiles_app.command("list")
 def profiles_list(
     ctx: typer.Context,
