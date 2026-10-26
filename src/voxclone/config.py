@@ -20,6 +20,8 @@ TUNABLE_ENV_VARS: dict[str, type] = {
     "VOXCLONE_CHUNK_MAX_SEC": float,
     "VOXCLONE_CROSSFADE_MS": int,
     "VOXCLONE_SENTENCE_MAX_CHARS": int,
+    "VOXCLONE_BACKEND": str,
+    "VOXCLONE_DRIVE_DIR": str,
 }
 
 
@@ -98,6 +100,18 @@ class AppConfig:
     def sentence_max_chars(self) -> int:
         """Maximum character count for sentence chunking in TTS."""
         return int(self.env_overrides.get("sentence_max_chars", 200))
+
+    @property
+    def backend(self) -> str:
+        """Execution backend topology ('local' or 'remote_drive')."""
+        return str(self.env_overrides.get("backend", "local"))
+
+    @property
+    def drive_dir(self) -> Path | None:
+        """Local filesystem path to synced Google Drive queue directory."""
+        val = self.env_overrides.get("drive_dir")
+        return Path(str(val)) if val else None
+
 
 
 
