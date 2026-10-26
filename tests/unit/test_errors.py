@@ -53,10 +53,30 @@ def test_error_to_dict_schema() -> None:
     err = SampleTooShortError(message="Custom short sample", hint="Custom hint")
     payload = err.to_dict()
 
-    assert set(payload.keys()) == {"error_code", "message", "hint"}
+    assert set(payload.keys()) == {"error_code", "message", "hint", "recovery_actions"}
     assert payload["error_code"] == "VX-101"
     assert payload["message"] == "Custom short sample"
     assert payload["hint"] == "Custom hint"
+    assert isinstance(payload["recovery_actions"], list)
+
+
+def test_error_recovery_actions_completeness() -> None:
+    """Verify each error subclass defines valid recovery actions matching taxonomy."""
+    valid_actions = {"resume", "free_gpu", "doctor", "fetch_models", "log_path"}
+    for cls, _ in EXPECTED_ERROR_SPECS:
+        instance = cls()
+        assert isinstance(instance.recovery_actions, tuple)
+        assert len(instance.recovery_actions) >= 1
+        for action in instance.recovery_actions:
+            assert action in valid_actions
+
+    # Specific recovery action invariants
+    assert "resume" in ChunkOutOfMemoryError().recovery_actions
+    assert "resume" in JobInterruptedError().recovery_actions
+    assert "free_gpu" in InsufficientVramError().recovery_actions
+    assert "fetch_models" in ModelWeightsMissingError().recovery_actions
+    assert "doctor" in MicrophoneUnavailableError().recovery_actions
+    assert "resume" not in ConsentRequiredError().recovery_actions
 
 
 def test_error_codes_uniqueness() -> None:

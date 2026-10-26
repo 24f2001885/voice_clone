@@ -7,7 +7,8 @@ import questionary
 
 from voxclone.errors import VoxcloneError
 from voxclone.storage import settings_repo
-from voxclone.ui.components import render_error, render_header, render_panel
+from voxclone.ui.components import render_header, render_panel
+from voxclone.ui.screens.error_panel import show_error_panel
 from voxclone.ui.theme import questionary_style
 
 BACK_LABEL: str = "← Back"
@@ -176,12 +177,8 @@ def run_main_menu(state: Any) -> None:
             try:
                 _dispatch_handler(state, handler_path)
             except VoxcloneError as err:
-                render_error(state.console, err, debug=state.debug, theme=state.theme)
-                if not state.plain:
-                    questionary.press_any_key_to_continue("Press any key to return to menu...").ask()
+                show_error_panel(state, err)
             except Exception as exc:
                 err = VoxcloneError(f"Unexpected error: {exc!s}", code="VX-900")
                 err.__cause__ = exc
-                render_error(state.console, err, debug=state.debug, theme=state.theme)
-                if not state.plain:
-                    questionary.press_any_key_to_continue("Press any key to return to menu...").ask()
+                show_error_panel(state, err)
