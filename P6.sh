@@ -10,8 +10,20 @@ if ! git rev-parse -q --verify "refs/tags/p5-done" >/dev/null; then
 fi
 
 echo "Checking out milestone branch..."
-git checkout main
-git checkout -b milestone/p6-hardening-release
+BRANCH_NAME="milestone/p6-hardening-release"
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
+    if git rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
+        echo "Checking out existing branch: $BRANCH_NAME"
+        git checkout "$BRANCH_NAME"
+    else
+        echo "Creating and checking out branch: $BRANCH_NAME from main"
+        git checkout main
+        git checkout -b "$BRANCH_NAME"
+    fi
+else
+    echo "Already on milestone branch: $BRANCH_NAME"
+fi
 
 echo "Creating directories for P6..."
 mkdir -p docs/seed_extensions
@@ -237,9 +249,11 @@ EOF
 echo "====================================================="
 echo "Milestone P6 Seeded Successfully!"
 echo "NEXT STEPS:"
-echo "1. Provide the seeded files AND docs/seed_extensions/P6_extensions.md (with the current contents of the files it lists) to your LLM (code-implementer) to generate the code and write the docs."
-echo "2. Run 'docker compose -f docker-compose.test.yml run --rm tests make coverage' to test offline (>= 85 percent), then the GPU KPI run: 'docker compose run --rm -e VOXCLONE_SOAK_JOBS=50 voxclone pytest -m gpu'."
-echo "3. Run 'git add . && git commit -m \"feat: complete P6\"'"
-echo "4. Merge and tag: 'git checkout main && git merge --no-ff milestone/p6-hardening-release && git tag p6-done && git tag v1.0'"
-echo "Project scaffolding complete."
+echo "1. Provide the seeded files AND docs/seed_extensions/P6_extensions.md to generate code and docs."
+echo "2. Run offline tests & coverage: 'pytest tests/ --cov=src/voxclone --cov-fail-under=85 -m \"not gpu\"'."
+echo "3. For local GPU KPI run: 'docker compose run --rm -e VOXCLONE_SOAK_JOBS=50 voxclone pytest -m gpu'."
+echo "   For CPU / AMD Radeon APU execution: test using docker-compose.cpu.yml."
+echo "4. Run 'git add . && git commit -m \"feat: complete P6\"'"
+echo "5. Merge and tag: 'git checkout main && git merge --no-ff milestone/p6-hardening-release && git tag p6-done && git tag v1.0'"
+echo "6. Proceed to P7.sh (Remote GPU Backend with Google Colab & Google Drive queue)."
 echo "====================================================="

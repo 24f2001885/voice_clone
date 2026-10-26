@@ -179,76 +179,122 @@ To verify Phase P0 locally:
 
 This section provides the exhaustive, step-by-step checklist of everything the human operator must download, configure, register, and verify before proceeding.
 
-#### 7.1 What to Download (Software & Driver Binaries)
-1. **NVIDIA Host Drivers:**
-   - Download the latest NVIDIA driver for your GPU / vGPU from [nvidia.com/drivers](https://www.nvidia.com/Download/index.aspx).
-   - Ensure the driver supports CUDA 12.0+ (driver version >= 525.60 on Linux / Windows).
-2. **Docker Desktop with WSL2 Backend:**
-   - Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/).
-   - During installation, enable **"Use WSL 2 instead of Hyper-V"**.
-   - In Docker Desktop settings: **General** -> check *Use the WSL 2 based engine*; **Resources** -> **WSL Integration** -> enable integration with your default WSL distro (e.g. Ubuntu).
-3. **WSL2 Linux Kernel Update (if on Windows):**
-   - In Windows PowerShell (Admin):
+---
+
+#### 7.1 Hardware Architecture Matrix: Determining Your Execution Mode
+
+Run the pre-flight device detection command in Windows PowerShell:
+```powershell
+Get-PnpDevice -Class Display | Select-Object FriendlyName, Status, InstanceId
+```
+
+Depending on the output, select your operational profile:
+
+| Detected Hardware | Device Status | Operational Mode | Inference Execution Path | Docker Compose File |
+|---|---|---|---|---|
+| **NVIDIA GeForce / RTX / vGPU** (8 GB VRAM) | OK | **Local CUDA Mode** | Local GPU via PyTorch CUDA 12.x | `docker-compose.yml` |
+| **AMD Radeon(TM) Graphics** (Ryzen APU / VEN_1002) | OK | **Hybrid / CPU Mode** | Local CPU for DSP/UI + Remote Google Colab T4 GPU via Drive queue | `docker-compose.cpu.yml` |
+| **Intel Iris Xe / UHD Graphics** | OK | **Hybrid / CPU Mode** | Local CPU for DSP/UI + Remote Google Colab T4 GPU via Drive queue | `docker-compose.cpu.yml` |
+
+> [!NOTE]
+> **For AMD Radeon APU Users:**
+> Your Ryzen processor contains an integrated APU sharing system RAM. PyTorch CUDA does not support AMD APUs on Windows/WSL2 without ROCm (which is unsupported on mobile/consumer APUs). **The project runs 100% cleanly on your machine:**
+> 1. All unit, integration, and UI tests pass offline on CPU (`VOXCLONE_ENGINE=fake`).
+> 2. Audio manipulation, chunking, loudness normalization, and CLI run natively on your CPU.
+> 3. Real neural speech cloning is accelerated for free using the **Hybrid Google Drive Queue** (`VOXCLONE_BACKEND=remote_drive`), connecting your local machine to an NVIDIA T4 GPU on Google Colab!
+
+---
+
+#### 7.2 What to Download (Software, Binaries & Runtimes)
+
+1. **Python 3.11, 3.12, or 3.13:**
+   - Windows: Download installer from [python.org/downloads](https://www.python.org/downloads/) (check "Add python.exe to PATH").
+   - Linux / WSL: `sudo apt update && sudo apt install -y python3 python3-pip python3-venv`
+2. **Audio Decoding & DSP Binaries (`ffmpeg`, `libsndfile`):**
+   - Windows PowerShell:
      ```powershell
-     wsl --update
+     winget install Gyan.FFmpeg
      ```
-4. **NVIDIA Container Toolkit (Host Linux / WSL2):**
-   - Configures Docker to access the vGPU:
+   - Linux / WSL:
      ```bash
-     curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-     curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-       sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-       sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-     sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-     sudo nvidia-ctk runtime configure --runtime=docker
+     sudo apt-get install -y ffmpeg libsndfile1 libportaudio2
      ```
-5. **Git & Git LFS:**
-   - Linux / WSL: `sudo apt-get install -y git git-lfs`
-   - Windows: [git-scm.com](https://git-scm.com/)
+3. **Version Control (`git` & `git-lfs`):**
+   - Windows: Download from [git-scm.com](https://git-scm.com/).
+   - Linux / WSL: `sudo apt install -y git git-lfs`
+4. **Containerization (Optional for container workflows):**
+   - **Docker Desktop:** Download from [docker.com](https://www.docker.com/products/docker-desktop/).
+   - If using AMD / CPU: Use `docker compose -f docker-compose.cpu.yml up`.
+   - If using NVIDIA GPU: Install NVIDIA Container Toolkit (`sudo apt-get install -y nvidia-container-toolkit`).
+5. **Google Drive for Desktop (Only for Hybrid Colab Mode):**
+   - Download from [google.com/drive/download](https://www.google.com/drive/download/).
+   - Creates a local drive letter (e.g. `G:\My Drive`) to synchronize queued audio chunks with Google Colab.
 
-#### 7.2 Where to Login (Accounts & Registrations)
-1. **Hugging Face Account:**
-   - Register or sign in at [huggingface.co/join](https://huggingface.co/join).
-   - Needed for downloading open model weights (Chatterbox TTS, HuBERT / Voice Conversion, Emotion RoBERTa) in subsequent phases.
-2. **GitHub Account:**
-   - Login at [github.com](https://github.com/).
-   - Ensure you have write access to repository [24f2001885/voice_clone](https://github.com/24f2001885/voice_clone).
+---
 
-#### 7.3 What Keys & Tokens to Bring
-1. **Hugging Face User Access Token (`HF_TOKEN`):**
-   - Navigate to [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-   - Create a **Read** token named `voxclone`.
-   - Store it safely; in Phase P1+, you will add it to `.env`:
-     ```bash
-     HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-     ```
-2. **GitHub Personal Access Token (PAT):**
-   - Navigate to [github.com/settings/tokens](https://github.com/settings/tokens).
-   - Generate a classic token or fine-grained token with `repo` scope to push code and sync branches.
-   - Configure Git credential caching:
+#### 7.3 Where to Login (Accounts & Cloud Portals)
+
+1. **GitHub Account:**
+   - Portal: [github.com/login](https://github.com/login)
+   - Needed to clone, pull, and push milestone branches to `https://github.com/24f2001885/voice_clone.git`.
+2. **Hugging Face Account:**
+   - Portal: [huggingface.co/join](https://huggingface.co/join)
+   - Needed for accessing open neural weights (F5-TTS, OpenVoice V2, DistilRoBERTa).
+3. **Google Account (for Hybrid Mode):**
+   - Portal: [accounts.google.com](https://accounts.google.com)
+   - Access to Google Drive (folder queue) and Google Colab ([colab.research.google.com](https://colab.research.google.com)) for free NVIDIA T4 GPU execution.
+
+---
+
+#### 7.4 What Keys & Tokens to Bring
+
+1. **GitHub Personal Access Token (PAT):**
+   - Generate at [github.com/settings/tokens](https://github.com/settings/tokens).
+   - Scopes required: `repo` (full control of private repositories).
+   - Configure Git credential cache:
      ```bash
      git config --global credential.helper store
      ```
+2. **Hugging Face Read Token (`HF_TOKEN`):**
+   - Generate at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+   - Type: **Read**.
+   - Copy token `hf_...` into your `.env` file:
+     ```dotenv
+     HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+     ```
+3. **Google Drive Queue Path (Hybrid Colab Mode):**
+   - Path to your synchronized Drive folder:
+     ```dotenv
+     VOXCLONE_BACKEND=remote_drive
+     VOXCLONE_DRIVE_DIR=G:/My Drive/voxclone_queue
+     ```
 
-#### 7.4 What to Check (Pre-Flight Validations)
-Run these verification commands in your WSL/Linux terminal:
+---
 
-| Item | Command | Expected Result | What to Do if Failing |
+#### 7.5 What to Check (Pre-Flight Verification Commands)
+
+Run these checks in PowerShell or WSL bash before executing Phase P0:
+
+| Verification Item | Command | Expected Output | Remediation if Failing |
 |---|---|---|---|
-| **vGPU / GPU Visibility** | `nvidia-smi` | Lists GPU name, driver version, and VRAM (e.g. 8192 MiB) | Update NVIDIA host drivers; enable GPU partitioning in VM |
-| **WSL2 RAM Allocation** | `free -m` | Mem Total >= 7,000 MB | Create `%USERPROFILE%\.wslconfig` with `[wsl2]` `memory=8GB`, then run `wsl --shutdown` in PowerShell |
-| **WSLg Audio Server** | `ls -la /mnt/wslg/PulseServer` | Socket file exists | Upgrade to Windows 11 Build 22000+; file mode operates without it |
-| **Disk Space** | `df -h .` | Avail >= 30 GB | Clean Docker prune or expand virtual hard disk |
-| **Docker GPU Access** | `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` | Outputs GPU table inside container | Restart Docker daemon after installing `nvidia-container-toolkit` |
+| **GPU Hardware Detection** | `Get-PnpDevice -Class Display` (PowerShell) | `AMD Radeon(TM) Graphics` or `NVIDIA GeForce ...` | If AMD APU: set `VOXCLONE_DEVICE=cpu`. If NVIDIA: install NVIDIA drivers. |
+| **PyTorch Device** | `python -c "import torch; print('CUDA:', torch.cuda.is_available())"` | `CUDA: True` (NVIDIA) or `CUDA: False` (AMD/CPU) | If `False` on AMD, this is expected; proceed with CPU/Hybrid mode. |
+| **Python Version** | `python --version` | Python 3.11.x, 3.12.x, or 3.13.x | Install Python from python.org |
+| **FFmpeg Installation** | `ffmpeg -version` | ffmpeg version 6.x or 7.x | Install via winget or apt |
+| **WSL Memory (if using WSL)** | `free -m` | Mem Total >= 6,000 MB | Create `%USERPROFILE%\.wslconfig` with `[wsl2]` `memory=6GB` |
+| **Git Remote Sync** | `git remote -v` | Points to `24f2001885/voice_clone.git` | Run `git remote set-url origin https://github.com/24f2001885/voice_clone.git` |
 
-#### 7.5 Exact Operator Setup Sequence (Copy-Paste)
-Execute this sequence to verify your workspace is completely primed:
+---
+
+#### 7.6 Exact Operator Setup Sequence (Copy-Paste)
+
+Execute this sequence to verify your workspace is completely primed and validate Milestone P0:
 
 ```bash
-# Step 1: Clone or navigate to the repository
-cd c:\Users\ACER\Desktop\v1   # (or /mnt/c/Users/ACER/Desktop/v1 in WSL)
+# Step 1: Navigate to repository root
+cd c:\Users\ACER\Desktop\v1   # (or cd /mnt/c/Users/ACER/Desktop/v1 in WSL)
 
-# Step 2: Initialize and verify environment
+# Step 2: Ensure .env is present
 cp -n .env.example .env
 
 # Step 3: Run the automated pre-flight diagnostics

@@ -12,12 +12,19 @@ echo "======================================================================"
 # 1. Verify Git repository and branch
 echo "[1/6] Verifying Git milestone branch..."
 BRANCH_NAME="milestone/p1-models-profiles"
-if git rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
-    echo "Checking out existing branch: $BRANCH_NAME"
-    git checkout "$BRANCH_NAME"
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
+    if git rev-parse -q --verify "refs/tags/p1-done" >/dev/null; then
+        echo "Notice: Milestone P1 is tagged p1-done. Executing verification on current branch: $CURRENT_BRANCH"
+    elif git rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
+        echo "Checking out existing branch: $BRANCH_NAME"
+        git checkout "$BRANCH_NAME"
+    else
+        echo "Creating and checking out branch: $BRANCH_NAME"
+        git checkout -b "$BRANCH_NAME"
+    fi
 else
-    echo "Creating and checking out branch: $BRANCH_NAME"
-    git checkout -b "$BRANCH_NAME"
+    echo "Already on milestone branch: $BRANCH_NAME"
 fi
 
 # 2. Scaffold directories for models, audio, and profiles
