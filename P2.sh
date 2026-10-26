@@ -10,8 +10,20 @@ if ! git rev-parse -q --verify "refs/tags/p1-done" >/dev/null; then
 fi
 
 echo "Checking out milestone branch..."
-git checkout main
-git checkout -b milestone/p2-text-to-voice
+BRANCH_NAME="milestone/p2-text-to-voice"
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
+    if git rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
+        echo "Checking out existing branch: $BRANCH_NAME"
+        git checkout "$BRANCH_NAME"
+    else
+        echo "Creating and checking out branch: $BRANCH_NAME from main"
+        git checkout main
+        git checkout -b "$BRANCH_NAME"
+    fi
+else
+    echo "Already on milestone branch: $BRANCH_NAME"
+fi
 
 echo "Creating directories for P2..."
 mkdir -p src/voxclone/pipelines tests/e2e docs/seed_extensions
@@ -59,7 +71,7 @@ PROMPT FOR LLM IMPLEMENTATION:
 1. STAGES tuple (complete list so later milestones add none): "split", "preparing", "loading_model", "emotion", "synthesizing", "converting", "postprocessing", "joining", "writing", "playing", "done", "failed", "cancelled".
 2. Frozen dataclass ProgressEvent: stage (must be in STAGES), chunk_index (int|None), total_chunks (int|None), message (str), result (JobResult|None, only on "done"), payload (object|None, internal hand-off such as PipelineOutput).
 3. Dataclass PipelineOutput: audio (np.ndarray float32 mono), sample_rate (int), total_chunks (int).
-4. Dataclass PipelineContext: job (Job), profile (VoiceProfile), config, conn, model_manager, settings (dict of effective settings), cancel_event (threading.Event), reference_path (Path).
+4. Dataclass PipelineContext: job (Job), profile (VoiceProfile), config, conn, model_manager, settings (dict of effective settings), cancel_event (threading.Event), reference_path (Path), backend (str: "local"|"remote_drive" = "local"), drive_dir (Path|None = None).
 5. Validation: creating a ProgressEvent with an unknown stage raises a VoxcloneError (InternalError VX-900).
 DEBUGGING:
 # print(f"[DEBUG] progress {stage} {chunk_index}/{total_chunks} {message}")
@@ -383,9 +395,12 @@ EOF
 echo "====================================================="
 echo "Milestone P2 Seeded Successfully!"
 echo "NEXT STEPS:"
-echo "1. Provide the seeded files AND docs/seed_extensions/P2_extensions.md (with the current contents of the files it lists) to your LLM (code-implementer) to generate the code."
-echo "2. Run 'docker compose -f docker-compose.test.yml run --rm tests make test' to test offline; then on your GPU machine: 'docker compose run --rm voxclone voxclone system fetch-models' and 'docker compose run --rm -e VOXCLONE_TEST_REFERENCE=/app/inputs/ref.wav voxclone pytest -m gpu'."
-echo "3. Run 'git add . && git commit -m \"feat: complete P2\"'"
-echo "4. Merge and tag: 'git checkout main && git merge --no-ff milestone/p2-text-to-voice && git tag p2-done'"
-echo "5. Execute P3.sh"
+echo "1. Provide the seeded files AND docs/seed_extensions/P2_extensions.md to generate the code."
+echo "2. Run offline tests: 'python -m pytest tests/ -v -m \"not gpu\"' or 'docker compose -f docker-compose.test.yml run --rm tests make test'."
+echo "3. For local GPU smoke test: 'docker compose run --rm voxclone pytest -m gpu'."
+echo "   For CPU / AMD Radeon APU execution: set VOXCLONE_DEVICE=cpu or use docker-compose.cpu.yml."
+echo "   For Colab T4 GPU hybrid execution: set VOXCLONE_BACKEND=remote_drive."
+echo "4. Run 'git add . && git commit -m \"feat: complete P2\"'"
+echo "5. Merge and tag: 'git checkout main && git merge --no-ff milestone/p2-text-to-voice && git tag p2-done'"
+echo "6. Execute P3.sh"
 echo "====================================================="

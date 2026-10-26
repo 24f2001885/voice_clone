@@ -164,46 +164,85 @@ voxclone system free-gpu --plain
 
 ## 7. Operator Action Checklist: Setup, Downloads, Logins & Keys
 
-Follow this checklist to prepare your environment:
+This section provides the complete operational checklist for human operators completing Milestone P1.
 
-### Step 1: Verify Hardware & vGPU Settings
-* [ ] Open terminal and run `nvidia-smi` to confirm NVIDIA GPU driver is functional.
-* [ ] Ensure total VRAM is recognized (8192 MB).
-* [ ] Confirm `VOXCLONE_VRAM_BUDGET_MB=6000` is configured in your `.env`.
+---
+
+### Step 1: Verify Hardware Profile (NVIDIA vs AMD APU / CPU)
+Run the hardware detection check:
+* **In Windows PowerShell:**
+  ```powershell
+  Get-PnpDevice -Class Display | Select-Object FriendlyName, Status, InstanceId
+  python -c "import torch; print('CUDA Available:', torch.cuda.is_available())"
+  ```
+* **Configuration according to your hardware:**
+  * **If NVIDIA GPU / 8 GB vGPU:** Keep `VOXCLONE_DEVICE=auto` or `cuda`, `VOXCLONE_VRAM_BUDGET_MB=6000`.
+  * **If AMD Radeon APU (VEN_1002) / CPU:** Set `VOXCLONE_DEVICE=cpu`. The model manager and profile enrollment runs smoothly on CPU. For fast neural generation, configure `VOXCLONE_BACKEND=remote_drive`.
+
+---
 
 ### Step 2: System Audio Libraries Installation
-* On Ubuntu / Debian / WSL2:
+* **On Ubuntu / Debian / WSL2:**
   ```bash
   sudo apt update
   sudo apt install -y libsndfile1 libportaudio2 libasound2-dev ffmpeg
   ```
-* On Windows (native PowerShell):
-  * Audio is handled via WASAPI / DirectSound through pre-compiled `sounddevice` and `soundfile` wheels.
+* **On Windows (PowerShell):**
+  * Ensure FFmpeg is installed (`winget install Gyan.FFmpeg`).
+  * Ensure Python packages are installed: `pip install librosa soundfile sounddevice`.
 
-### Step 3: Hugging Face Account & Access Token Setup
-* [ ] **Where to login:** Navigate to [https://huggingface.co](https://huggingface.co) and sign in (or register).
-* [ ] **What key to bring:** Go to **Settings -> Access Tokens** ([https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)).
-* [ ] Generate a new **Read** token (named e.g. `voxclone-cli`).
-* [ ] Copy the token (`hf_...`).
-* [ ] Authenticate your local CLI:
-  ```bash
-  huggingface-cli login --token hf_your_token_here
-  ```
-  Or export in your environment:
-  ```bash
-  export HF_TOKEN=hf_your_token_here
-  ```
+---
 
-### Step 4: Model Checkpoints Provisioning
-* [ ] Pull model checkpoints to local storage (`/models` or `./models`):
-  ```bash
-  voxclone system fetch-models
-  ```
-  Or pull manually via `huggingface-cli download`:
-  * F5-TTS: `SWivid/F5-TTS`
-  * OpenVoice V2: `myshell-ai/OpenVoiceV2`
-  * DistilRoBERTa Emotion: `j-hartmann/emotion-english-distilroberta-base`
+### Step 3: Where to Login (Accounts & Credentials)
+* [ ] **Hugging Face Account:**
+  * Sign in or register at [https://huggingface.co](https://huggingface.co).
+* [ ] **GitHub Account:**
+  * Sign in at [https://github.com](https://github.com) to synchronize with repository `https://github.com/24f2001885/voice_clone.git`.
+* [ ] **Google Account (for Hybrid Drive Queue mode):**
+  * Sign in to Google Drive and Google Colab ([https://colab.research.google.com](https://colab.research.google.com)).
 
-### Step 5: Run Phase 1 Automation & Sign-off
-* [ ] Execute `./P1.sh`.
-* [ ] Verify all 73 automated tests report green.
+---
+
+### Step 4: What Keys & Tokens to Bring
+* [ ] **Hugging Face Read Token (`HF_TOKEN`):**
+  * Go to **Settings -> Access Tokens** ([https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)).
+  * Create a **Read** token named `voxclone-cli`.
+  * Add to `.env`:
+    ```dotenv
+    HF_TOKEN=hf_your_actual_read_token_here
+    ```
+  * Or authenticate CLI:
+    ```bash
+    huggingface-cli login --token hf_your_actual_read_token_here
+    ```
+* [ ] **GitHub Personal Access Token:**
+  * Generate a token with `repo` scope at [https://github.com/settings/tokens](https://github.com/settings/tokens).
+* [ ] **Google Drive Path (for Hybrid Mode):**
+  * Create folder `voxclone_queue` in your Google Drive and set in `.env`:
+    ```dotenv
+    VOXCLONE_BACKEND=remote_drive
+    VOXCLONE_DRIVE_DIR=G:/My Drive/voxclone_queue
+    ```
+
+---
+
+### Step 5: What to Check (Pre-Flight Validations)
+| Check Item | Command | Expected Result | Action if Failing |
+|---|---|---|---|
+| **Audio Validation & librosa** | `python -c "import librosa, soundfile; print('Audio stack ready')"` | `Audio stack ready` | Run `pip install librosa soundfile` |
+| **Speaker Consent Enforcement** | `voxclone profiles enroll --file tests/fixtures/sample_speech.wav --name "Bad" --no-consent --plain` | Exits with error code `VX-103` | Verifies mandatory safety consent check |
+| **Model Manager Registration** | `voxclone system status --plain` | Displays Model Manager registry (idle / 0 MB) | Verifies single-resident architecture |
+| **GPU/VRAM Manual Release** | `voxclone system free-gpu --plain` | "GPU memory released" | Verifies garbage collection and CUDA cache flush |
+
+---
+
+### Step 6: Run Phase 1 Automation & Sign-off
+Execute the automated test and scaffolding runner:
+```bash
+# In WSL or bash terminal:
+bash P1.sh
+
+# Or in Windows PowerShell:
+python -m pytest tests/unit tests/integration -v -m "not gpu"
+```
+* **Sign-off Criteria:** All 73 tests must report green (`73 passed`). ModelManager single-resident invariant and ConsentRequiredError (VX-103) are verified.

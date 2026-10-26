@@ -19,14 +19,21 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git commit --allow-empty -m "chore: initial repository commit" || true
 fi
 
-# Ensure milestone branch exists and check it out
+# Ensure milestone branch exists and check it out safely
 BRANCH_NAME="milestone/p0-foundation"
-if git rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
-    echo "Checking out existing branch: $BRANCH_NAME"
-    git checkout "$BRANCH_NAME"
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
+    if git rev-parse -q --verify "refs/tags/p0-done" >/dev/null; then
+        echo "Notice: Milestone P0 is tagged p0-done. Executing verification on current branch: $CURRENT_BRANCH"
+    elif git rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
+        echo "Checking out existing branch: $BRANCH_NAME"
+        git checkout "$BRANCH_NAME"
+    else
+        echo "Creating and checking out branch: $BRANCH_NAME"
+        git checkout -b "$BRANCH_NAME"
+    fi
 else
-    echo "Creating and checking out branch: $BRANCH_NAME"
-    git checkout -b "$BRANCH_NAME"
+    echo "Already on milestone branch: $BRANCH_NAME"
 fi
 
 # 2. Scaffold directory tree
