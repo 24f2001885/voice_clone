@@ -537,7 +537,8 @@ def speak(
     profile: Annotated[str, typer.Option("--profile", "-p", help="Target voice profile name or ID")],
     text: Annotated[str | None, typer.Option("--text", "-t", help="Text passage to synthesize")] = None,
     text_file: Annotated[Path | None, typer.Option("--text-file", "-f", help="Path to .txt file")] = None,
-    emotion: Annotated[str, typer.Option("--emotion", "-e", help="Emotion style [calm|normal|expressive]")] = "normal",
+    emotion: Annotated[str, typer.Option("--emotion", "-e", help="Emotion style [auto|calm|normal|expressive]")] = "auto",
+    show_emotions: Annotated[bool, typer.Option("--show-emotions", help="Show detected emotion preview table")] = False,
     save: Annotated[bool, typer.Option("--save", help="Save output to audio file (.wav)")] = False,
     play: Annotated[bool, typer.Option("--play", help="Play output audio")] = False,
     both: Annotated[bool, typer.Option("--both", help="Save output to file and play")] = False,
@@ -549,6 +550,12 @@ def speak(
     cli_ctx: CliContext = (ctx.find_root().obj if ctx else None) or CliContext(plain=plain, debug=debug)
     is_plain = plain or cli_ctx.plain
     is_debug = debug or cli_ctx.debug
+
+    valid_emotions = ("auto", "calm", "normal", "expressive")
+    if emotion.lower() not in valid_emotions:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        console.print(f"Error: Invalid emotion '{emotion}'. Choose from: {', '.join(valid_emotions)}")
+        sys.exit(1)
 
     if (text is None and text_file is None) or (text is not None and text_file is not None):
         console = make_console(get_theme(plain=is_plain), plain=is_plain)
@@ -581,6 +588,26 @@ def speak(
             console.print(f"Error: Voice profile '{profile}' not found. Run 'voxclone profiles enroll' first.")
             sys.exit(1)
 
+        if show_emotions:
+            from voxclone.pipelines.emotion_mapping import map_emotion_label
+            from voxclone.pipelines.text_splitter import split_text_into_chunks
+            from rich.table import Table
+
+            chunks = split_text_into_chunks(input_text, max_chars=200)
+            emotion_engine = state.model_manager.acquire("emotion")
+            detected_labels = emotion_engine.classify(chunks)
+            state.model_manager.unload("emotion")
+
+            table = Table(title="Detected Emotion Preview", expand=False)
+            table.add_column("#", justify="right")
+            table.add_column("Text Passage")
+            table.add_column("Detected Emotion")
+            table.add_column("Expressiveness", justify="right")
+            for i, (chunk, lbl) in enumerate(zip(chunks, detected_labels)):
+                snippet = chunk[:40] + ("..." if len(chunk) > 40 else "")
+                table.add_row(str(i + 1), snippet, lbl.upper(), f"{map_emotion_label(lbl):.2f}")
+            state.console.print(table)
+
         job_service = JobService(
             conn=state.conn,
             config=state.config,
@@ -589,7 +616,7 @@ def speak(
         job = job_service.create_text_job(
             profile_id=prof.id,
             input_text=input_text,
-            emotion_mode=emotion,
+            emotion_mode=emotion.lower(),
             output_mode=output_mode,
         )
 

@@ -268,6 +268,12 @@ class ModelManager:
             except Exception:
                 pass
 
+    def unload(self, model_key: str | None = None, job_id: str | None = None) -> None:
+        """Explicitly unload a specific model or the currently resident model."""
+        with self._lock:
+            if model_key is None or self._resident_key == model_key:
+                self._unload_resident(job_id=job_id)
+
     def release(self, model_key: str, job_id: str | None = None) -> None:
         """Release the engine after a task completes, respecting the keep_warm policy."""
         with self._lock:
