@@ -22,6 +22,11 @@ class VoxcloneError(Exception):
             self.code = code
         super().__init__(self.__str__())
 
+    @property
+    def error_code(self) -> str:
+        """Alias for code to support both instance.code and instance.error_code."""
+        return self.code
+
     def to_dict(self) -> dict[str, Any]:
         """Return standardized error dictionary representation."""
         return {

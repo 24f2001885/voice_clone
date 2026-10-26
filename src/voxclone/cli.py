@@ -1,6 +1,7 @@
 """Command-line interface entry points and sub-commands using Typer."""
 
 from dataclasses import dataclass
+from pathlib import Path
 import sys
 from typing import Annotated
 
@@ -8,6 +9,7 @@ import typer
 
 from voxclone.errors import InternalError, VoxcloneError
 from voxclone.services.system_service import get_storage_report, run_doctor
+from voxclone.services.job_service import JobService
 from voxclone.storage.migrate import apply_migrations, current_version
 from voxclone.ui import menu, session
 from voxclone.ui.components import make_console, render_error, render_table
@@ -528,4 +530,84 @@ def profiles_delete(
     finally:
         if state is not None:
             session.close(state)
+
+
+@app.command("speak")
+def speak(
+    profile: Annotated[str, typer.Option("--profile", "-p", help="Target voice profile name or ID")],
+    text: Annotated[str | None, typer.Option("--text", "-t", help="Text passage to synthesize")] = None,
+    text_file: Annotated[Path | None, typer.Option("--text-file", "-f", help="Path to .txt file")] = None,
+    emotion: Annotated[str, typer.Option("--emotion", "-e", help="Emotion style [calm|normal|expressive]")] = "normal",
+    save: Annotated[bool, typer.Option("--save", help="Save output to audio file (.wav)")] = False,
+    play: Annotated[bool, typer.Option("--play", help="Play output audio")] = False,
+    both: Annotated[bool, typer.Option("--both", help="Save output to file and play")] = False,
+    plain: Annotated[bool, typer.Option("--plain", help="Force ASCII output format")] = False,
+    debug: Annotated[bool, typer.Option("--debug", help="Show debug information")] = False,
+    ctx: typer.Context = None,  # type: ignore[assignment]
+) -> None:
+    """Synthesize text into speech using an enrolled voice profile."""
+    cli_ctx: CliContext = (ctx.find_root().obj if ctx else None) or CliContext(plain=plain, debug=debug)
+    is_plain = plain or cli_ctx.plain
+    is_debug = debug or cli_ctx.debug
+
+    if (text is None and text_file is None) or (text is not None and text_file is not None):
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        console.print("Error: Exactly one of --text or --text-file must be provided.")
+        sys.exit(1)
+
+    input_text = text or ""
+    if text_file is not None:
+        if not text_file.is_file():
+            console = make_console(get_theme(plain=is_plain), plain=is_plain)
+            console.print(f"Error: Text file not found: {text_file}")
+            sys.exit(1)
+        input_text = text_file.read_text(encoding="utf-8")
+
+    output_mode = "save"
+    if both:
+        output_mode = "both"
+    elif play:
+        output_mode = "play"
+    elif save:
+        output_mode = "save"
+
+    state = None
+    try:
+        state = session.bootstrap(debug=is_debug, plain=is_plain)
+        try:
+            prof = state.profile_service.get_profile(profile)
+        except Exception:
+            console = make_console(get_theme(plain=is_plain), plain=is_plain)
+            console.print(f"Error: Voice profile '{profile}' not found. Run 'voxclone profiles enroll' first.")
+            sys.exit(1)
+
+        job_service = JobService(
+            conn=state.conn,
+            config=state.config,
+            model_manager=state.model_manager,
+        )
+        job = job_service.create_text_job(
+            profile_id=prof.id,
+            input_text=input_text,
+            emotion_mode=emotion,
+            output_mode=output_mode,
+        )
+
+        for event in job_service.run_job(job.id):
+            if is_plain:
+                state.console.print(f"[{event.stage}] {event.message}")
+            else:
+                state.console.print(f"• [cyan]{event.stage}:[/cyan] {event.message}")
+            if event.stage == "done" and event.result and event.result.output_path:
+                state.console.print(f"Output generated: {event.result.output_path}")
+            elif event.stage in ("failed", "cancelled"):
+                sys.exit(1)
+    except VoxcloneError as err:
+        console = make_console(get_theme(plain=is_plain), plain=is_plain)
+        render_error(console, err, debug=is_debug)
+        sys.exit(1)
+    finally:
+        if state is not None:
+            session.close(state)
+
 

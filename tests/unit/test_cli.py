@@ -119,3 +119,34 @@ def test_cli_system_status() -> None:
     assert result.exit_code == 0
     assert "Resident Model" in result.stdout
 
+
+def test_cli_speak_help() -> None:
+    """Verify speak command help lists expected options."""
+    result = runner.invoke(app, ["speak", "--help"])
+    assert result.exit_code == 0
+    assert "--profile" in result.stdout
+    assert "--text" in result.stdout
+    assert "--emotion" in result.stdout
+
+
+def test_cli_speak_requires_text_or_file() -> None:
+    """Invoking speak without text or with both text and text-file must fail."""
+    result = runner.invoke(app, ["speak", "--profile", "Any", "--plain"])
+    assert result.exit_code != 0
+    assert "Exactly one of --text or --text-file" in result.stdout
+
+
+def test_cli_speak_success(reference_wav: Path) -> None:
+    """Enrolling a profile and speaking via CLI produces an output WAV path."""
+    runner.invoke(
+        app,
+        ["profiles", "enroll", "--file", str(reference_wav), "--name", "SpeakTester", "--consent", "--plain"],
+    )
+    result = runner.invoke(
+        app,
+        ["speak", "--profile", "SpeakTester", "--text", "Hello from speak CLI test.", "--save", "--plain"],
+    )
+    assert result.exit_code == 0
+    assert "Output generated:" in result.stdout
+
+

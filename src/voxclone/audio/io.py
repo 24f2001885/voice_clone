@@ -90,6 +90,11 @@ def save_wav(path: Path | str, data: np.ndarray, sample_rate: int) -> Path:
     return target
 
 
+def save_audio(data: np.ndarray, sample_rate: int, path: Path | str) -> Path:
+    """Save 1D or 2D audio array as 16-bit PCM WAV."""
+    return save_wav(path, data, sample_rate)
+
+
 def record_microphone(
     duration_sec: float = 15.0,
     sample_rate: int = REFERENCE_SAMPLE_RATE,
