@@ -222,6 +222,8 @@ Main menu
 - S-55 Setting editor (one per setting)
 - S-56 Storage report and Clean temp
 - S-57 Error panel (reusable, any `VX-` code)
+- S-58 Remote GPU Setup & Colab Drive Queue status (heartbeat, queue depths, one-click Colab link)
+
 
 ## 6. Status Badge Convention
 

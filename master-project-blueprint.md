@@ -13,6 +13,7 @@ voxclone/
 ├── .dockerignore
 ├── Dockerfile
 ├── docker-compose.yml                # runtime: GPU, volumes, WSLg audio
+├── docker-compose.cpu.yml            # runtime: CPU/AMD fallback without NVIDIA GPU reservations
 ├── docker-compose.dev.yml            # source bind-mount for development
 ├── docker-compose.test.yml           # CPU-only, network_mode: none, fake engines
 ├── Makefile                          # lint, typecheck, test, test-gpu, build, run
@@ -75,7 +76,12 @@ voxclone/
 │       │   ├── real_tts.py
 │       │   ├── real_vc.py
 │       │   ├── real_emotion.py
+│       │   ├── remote_tts.py         # Google Drive queue TTS adapter
+│       │   ├── remote_vc.py          # Google Drive queue VC adapter
 │       │   └── fake_engines.py       # deterministic test doubles
+│       ├── transport/
+│       │   ├── __init__.py
+│       │   └── drive_queue.py        # Google Drive inbox/outbox file exchange protocol
 │       ├── audio/
 │       │   ├── __init__.py
 │       │   ├── io.py                 # load/save/resample, mic record, playback
@@ -103,7 +109,9 @@ voxclone/
 │               ├── recording_to_voice.py   # S-30..S-35
 │               ├── job_history.py          # S-40..S-43
 │               ├── system.py               # S-50..S-56
-│               └── error_panel.py          # S-57
+│               ├── error_panel.py          # S-57
+│               └── remote_worker.py        # S-58 (Colab Drive queue status & setup)
+
 ├── tests/
 │   ├── conftest.py                   # temp data dir, fake engines, synthetic audio
 │   ├── unit/
@@ -153,6 +161,7 @@ Every top-level item above exists from the milestone that first needs it (see se
   | P4 | `milestone/p4-recording-to-voice` |
   | P5 | `milestone/p5-jobs-performance` |
   | P6 | `milestone/p6-hardening-release` |
+  | P7 | `milestone/p7-remote-gpu` |
 - Small fixes inside a milestone use `fix/<short-desc>` branches off the milestone branch.
 
 ### 2.2 What "offline Docker testing" means here
@@ -279,6 +288,20 @@ Order guarantees each milestone depends only on earlier ones. Time is the PDR es
 
 **Acceptance:** fresh-clone setup works from the README alone; all PDR section 13 KPIs met; no real-time menu entry exists.
 
+### P7: Remote GPU Backend (Google Drive Queue & Colab Worker) (PDR M7, ~1 week)
+**Goal:** Enables full-speed GPU neural generation on AMD APUs, Intel iGPUs, or machines without local NVIDIA CUDA cards using a decoupled Google Drive queue connected to a free Google Colab NVIDIA T4 GPU worker.
+
+| Feature | Files | Commit |
+|---|---|---|
+| Google Drive queue transport layer (inbox/outbox file exchange, JSON manifest, heartbeat) | `transport/drive_queue.py`, `constants.py` | `feat(p7): add Google Drive file queue transport` |
+| Remote engine adapters implementing TtsEngine and VcEngine protocols | `engines/remote_tts.py`, `engines/remote_vc.py`, `engines/__init__.py` | `feat(p7): add RemoteTTS and RemoteVC engine adapters` |
+| Google Colab GPU worker notebook with persistent Drive model cache | `scripts/colab_worker.ipynb` | `feat(p7): add standalone Colab T4 GPU worker notebook` |
+| Remote worker error codes (VX-320..VX-323) & Doctor connectivity probe | `errors.py`, `services/system_service.py` | `feat(p7): add remote worker error codes and doctor probe` |
+| UI Remote worker status & Colab setup guide (S-58) + Settings toggle | `screens/system.py`, `screens/remote_worker.py` | `feat(p7): add remote worker status and configuration screens` |
+| Comprehensive test suite simulating Google Drive folder queue | `tests/unit/test_drive_queue.py`, `tests/integration/test_remote_engines.py` | `test(p7): cover Google Drive queue and remote engine adapters` |
+
+**Acceptance:** With `VOXCLONE_BACKEND=remote_drive`, chunk requests write cleanly to `inbox/`; Colab worker (or test double) produces `outbox/` audio; VoxClone CLI seamlessly stitches and delivers output identical to local execution; zero port forwarding or public network tunnels required.
+
 ### Traceability
 
 | PDR milestone | Blueprint | TDR sections | Main screens |
@@ -290,3 +313,5 @@ Order guarantees each milestone depends only on earlier ones. Time is the PDR es
 | M4 | P4 | 3.1-3.6 | S-30..S-35 |
 | M5 | P5 | 11 | S-40..S-43, S-54, S-55 |
 | M6 | P6 | 10, 12, 15 | S-57, S-03, S-04 |
+| M7 | P7 | 2.4, 4.5, 12.3 | S-58, S-50, S-54 |
+

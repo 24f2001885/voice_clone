@@ -52,7 +52,7 @@ There is **no server**. The process is a single Python application (the "client"
 ```
 
 ### 2.2 Container orchestration
-Docker Compose with one service (`voxclone`), GPU reservation, `stdin_open`/`tty` for the interactive menu, `shm_size: 2gb`, and four named or bind volumes. No other containers. A second compose file (`docker-compose.test.yml`) defines a CPU-only test service.
+Docker Compose with one service (`voxclone`), GPU reservation, `stdin_open`/`tty` for the interactive menu, `shm_size: 2gb`, and four named or bind volumes. No other containers. A second compose file (`docker-compose.test.yml`) defines a CPU-only test service. A third compose file (`docker-compose.cpu.yml`) provides a native CPU/AMD configuration removing NVIDIA GPU reservations.
 
 ### 2.3 Data flow end to end
 
@@ -60,16 +60,52 @@ Docker Compose with one service (`voxclone`), GPU reservation, `stdin_open`/`tty
 1. Menu collects profile + text + emotion mode → `JobService.create_job(job_type="text_to_voice", ...)`.
 2. `text_pipeline` splits text into passages (≤200 chars) and writes `job_chunks` rows (`kind="sentence"`).
 3. If `auto_emotion`: `ModelManager.use("emotion")` loads the classifier → label each passage → exit context (unloads).
-4. `ModelManager.use("tts")` loads TTS → synthesize each passage with the profile's reference and mapped expressiveness.
+4. `ModelManager.use("tts")` loads TTS (or routes to Google Drive queue if remote backend is active) → synthesize each passage with the profile's reference and mapped expressiveness.
 5. CPU pool post-processes (loudness match) → crossfade join → write output → optionally play.
 6. Job marked `succeeded`; output path stored.
 
 **Recording to Voice**
 1. Input file (or mic recording written to `work/`) → `recording_pipeline`.
 2. **CPU stage:** decode → mono 16 kHz → silence-aware split into 3-5 s chunks → pool cleans each chunk and writes `work/<job_id>/in_NNNN.wav`.
-3. **GPU stage:** `ModelManager.use("vc")` → convert chunks in order; each finished chunk is persisted as `work/<job_id>/out_NNNN.wav` and its row set to `converted`.
+3. **GPU stage:** `ModelManager.use("vc")` (or Drive queue remote worker) → convert chunks in order; each finished chunk is persisted as `work/<job_id>/out_NNNN.wav` and its row set to `converted`.
 4. **CPU stage:** pool loudness-matches each output chunk to its input chunk → crossfade join → final WAV.
 5. Output saved/played; temp chunk files deleted on success.
+
+### 2.4 Hybrid Remote GPU Topology (Google Drive Queue + Colab Worker)
+
+For machines without a dedicated NVIDIA GPU (e.g. AMD Ryzen APUs, Intel integrated graphics, or thin laptops), VoxClone supports a decoupled hybrid topology:
+
+```
+ ┌───────────────── Local Laptop (AMD APU / CPU) ─────────────────┐
+ │                                                                │
+ │  • Rich Interactive CLI & Questionary Menus                    │
+ │  • SQLite Database (voxclone.db) & Profile Management          │
+ │  • Audio Recording / Playback & Silence-Aware Chunk Splitter   │
+ │  • CPU Multiprocessing Pool (Chunk Prep, Loudness Match, Join) │
+ │  • Transport Layer: writes chunk tasks to Google Drive inbox/  │
+ └───────────────────────────────┬────────────────────────────────┘
+                                 │ Background Sync
+                                 ▼
+              Google Drive Shared Storage (/voxclone_queue/)
+              ├── inbox/   (task manifests & input audio chunks)
+              └── outbox/  (completed audio chunks & status)
+                                 ▲
+                                 │ Background Sync
+ ┌───────────────────────────────┴────────────────────────────────┐
+ │  Google Colab / Cloud GPU (Free NVIDIA T4 / 15 GB VRAM)        │
+ │                                                                │
+ │  • colab_worker.ipynb daemon                                   │
+ │  • Watches inbox/ for pending chunk manifests                  │
+ │  • Executes neural inference on GPU (F5-TTS, OpenVoice V2)     │
+ │  • Emits completed audio to outbox/ & updates heartbeat        │
+ └────────────────────────────────────────────────────────────────┘
+```
+
+**Key Advantages:**
+1. **Zero Open Ports / No Tunnels:** No ngrok, Cloudflare tunnels, or public IP needed. Google Drive sync handles data transport completely out of band, eliminating the risk of Colab proxy bans.
+2. **Resilient & Resumable:** If Colab disconnects or times out, the local SQLite job chunk tracker remains intact. When the worker resumes, unprocessed chunks are picked up immediately.
+3. **Identical Engine Abstraction:** `RemoteDriveTts` and `RemoteDriveVc` satisfy `TtsEngine` and `VcEngine` protocols identically to local models. The pipelines, chunking, and UI do not know or care where the inference ran.
+
 
 ## 3. Flagship Feature: Chunked Parallel Voice Conversion Engine
 
@@ -430,6 +466,10 @@ Format: `✖ <what happened> (VX-xxx)` then `→ <what to do>`. Never show a tra
 | VX-301 | Out of memory during a chunk | Resume the job; lower chunk length |
 | VX-302 | GPU not available | Run Doctor; CPU mode is much slower |
 | VX-310 | Model weights missing | Run `system fetch-models` while online |
+| VX-320 | Remote Colab worker offline | Run the Colab notebook or verify Drive sync |
+| VX-321 | Remote chunk processing timed out | Check Colab execution cell or resume job |
+| VX-322 | Google Drive queue path missing | Check Google Drive folder path in Settings |
+| VX-323 | Remote worker version mismatch | Pull latest colab_worker.ipynb notebook |
 | VX-401 | Microphone unavailable | Run Doctor; use a file instead |
 | VX-402 | Speaker unavailable | Output was saved; play it from Windows |
 | VX-500 | Job interrupted | Choose Resume |

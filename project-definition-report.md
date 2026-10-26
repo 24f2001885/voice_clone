@@ -1,12 +1,17 @@
 # PROJECT DEFINITION REPORT: VoxClone CLI
 
 > **Assumptions made while writing this PDR (please correct any that are wrong)**
-> 1. Single user, single machine (your laptop). No accounts, no cloud, no multi-user.
-> 2. Hardware budget: **8 GB usable system RAM** (WSL2) and **8 GB VRAM**. Everything below is sized to fit that.
+> 1. Single user, single machine (your laptop). No accounts, no commercial cloud APIs, no multi-user.
+> 2. Hardware budget & execution topology:
+>    - **Option A (Local NVIDIA GPU):** 8 GB usable system RAM (WSL2) and 8 GB dedicated VRAM.
+>    - **Option B (AMD APU / CPU + Remote Colab GPU via Drive Queue):** Local machine runs interactive CLI, UI, SQLite, and audio DSP on CPU (e.g. AMD Ryzen APU), while heavy neural inference (F5-TTS, OpenVoice V2) is offloaded to a free Google Colab NVIDIA T4 GPU worker via an asynchronous Google Drive queue (`inbox/` and `outbox/`).
+>    - **Option C (Pure Local CPU Fallback):** Offline execution strictly on CPU with slowness warning.
 > 3. "Speak real time" as an *input* is delivered as **record-then-convert** (you record from the mic, then it is cloned). Live streaming conversion is **paused** (see 3 Out-of-Scope and 12 Risks).
 > 4. Voice cloning is **zero-shot** (no training): a 20-30 s reference sample is enough.
 > 5. Primary language is English (the default model family is English-first). Multilingual is a later question (see TDR section 15).
 > 6. You will only clone voices you own or have explicit permission to use. The tool enforces a consent confirmation at enrollment.
+> 7. Drive Queue Privacy: When using the Google Drive queue backend, audio chunks and text pass strictly through the user's private personal Google Drive folder to their private Colab notebook; zero third-party telemetry or public exposure.
+
 
 ---
 
@@ -19,7 +24,7 @@ VoxClone CLI is a terminal application that runs inside Docker on WSL2 and clone
 
 Every result can be **saved as a .wav file**, **played immediately**, or both. The whole interface is a keyboard-driven **dropdown menu** that opens at launch. There are no commands to memorize.
 
-The engineering core is built for a modest laptop: AI models are loaded **one at a time and unloaded automatically** by code, and long audio is cut into **3-5 second chunks** that are prepared and finished across **all CPU cores**, while a single loaded model on the GPU converts them in order. The chunks are then rejoined into one smooth file.
+The engineering core is built for flexibility across hardware: AI models are loaded **one at a time and unloaded automatically** by code, and long audio is cut into **3-5 second chunks** that are prepared and finished across **all CPU cores**. For inference, VoxClone supports either a local NVIDIA GPU, a local CPU fallback, or the **hybrid Google Drive queue backend** where chunk inference is picked up by a free Google Colab NVIDIA T4 GPU worker without needing local CUDA hardware. The chunks are then rejoined into one smooth file.
 
 ## 2. Project Objectives
 
@@ -31,9 +36,9 @@ The engineering core is built for a modest laptop: AI models are loaded **one at
    - (c) supply text, with emotion understood from the text.
 3. **Two output paths:** save to disk, play now, or both.
 4. **Automatic model lifecycle:** only one AI model resident in memory at any moment; loading and unloading is done by code, never by the user.
-5. **Chunked parallel processing:** split audio into 3-5 s chunks, prepare/finish them on all CPU cores, convert on the GPU, and rejoin without audible seams.
-6. **Run entirely inside Docker on WSL2**, with no other services, accounts or cloud calls once the model weights are downloaded.
-7. **Fit in 8 GB VRAM / 8 GB RAM** without crashes.
+5. **Chunked parallel processing:** split audio into 3-5 s chunks, prepare/finish them on all CPU cores, convert on GPU (local or Drive-queued Colab worker), and rejoin without audible seams.
+6. **Run inside Docker or native Python on WSL2/Windows**, with offline testability and zero external third-party telemetry.
+7. **Accommodate diverse hardware:** run within 8 GB VRAM on local NVIDIA cards, run on CPU for AMD APUs, or offload heavy models to Google Colab via Google Drive without crashes.
 
 ### Secondary Objectives (not required for the initial build)
 - Live (streaming) microphone conversion. **Paused**; design-only spike at the end of the plan.
@@ -51,10 +56,12 @@ The engineering core is built for a modest laptop: AI models are loaded **one at
 - **Recording to Voice** (file or freshly recorded) using the chunked parallel pipeline.
 - **Output management:** save to `outputs/`, play through speakers, or both.
 - **Model Manager:** one-model-at-a-time load/unload, VRAM budget checks, "Free GPU memory" action.
+- **Hybrid Remote GPU Backend (Google Drive Queue):** optional decoupled backend where local CPU/AMD laptop writes chunk jobs to Google Drive `inbox/` and reads completed results from `outbox/`, powered by a free Google Colab NVIDIA T4 GPU worker notebook (`colab_worker.ipynb`).
 - **Job history** with progress and resume of an interrupted conversion.
-- **Doctor/diagnostics** command: checks GPU in Docker, audio devices, disk, model cache.
-- Docker image + compose file with GPU access and persistent volumes for weights, profiles and outputs.
-- Offline-first automated test suite that runs inside Docker without a GPU.
+- **Doctor/diagnostics** command: checks GPU in Docker, audio devices, disk, model cache, and remote Drive queue connectivity.
+- Docker image + compose files (supporting both NVIDIA GPU passthrough and AMD/CPU mode) with persistent volumes.
+- Offline-first automated test suite that runs inside Docker or local Python without a GPU.
+
 
 ### Out-of-Scope
 - **Real-time / live streaming voice conversion**: paused. No menu entry in this build.
@@ -188,17 +195,18 @@ Audio files themselves (reference samples, chunks, outputs) live on disk; the da
 
 ## 10. Development Phases & Timeline
 
-Solo, part-time estimate; each milestone is roughly one focused week. **M0-M6 map 1:1 to P0-P6 in the Master Project Blueprint.**
+Solo, part-time estimate; each milestone is roughly one focused week. **M0-M6 map 1:1 to P0-P6 in the Master Project Blueprint, with M7/P7 delivering the Remote GPU backend.**
 
 | Milestone | Goal | Features delivered |
 |---|---|---|
-| **M0: Foundation** (wk 1) | A running, GPU-aware container with an empty menu | WSL2 + Docker GPU verified; repo scaffold; config + logging; SQLite + migrations; menu opens at launch; `doctor` checks; fake-engine test harness |
+| **M0: Foundation** (wk 1) | A running, GPU/CPU-aware container with an empty menu | WSL2 + Docker GPU/CPU verified; repo scaffold; config + logging; SQLite + migrations; menu opens at launch; `doctor` checks; fake-engine test harness |
 | **M1: Model Manager + Voice Profiles** (wk 2) | Models load/unload safely; voices can be enrolled | One-model-at-a-time manager with VRAM budget; enroll from file and mic; sample validation and cleaning; list/preview/rename/delete; consent gate |
-| **M2: Text to Voice** (wk 3) | Type text, hear it in your voice | Sentence splitter; Chatterbox TTS; crossfade join; Save / Play / Both output |
+| **M2: Text to Voice** (wk 3) | Type text, hear it in your voice | Sentence splitter; F5-TTS / Chatterbox TTS; crossfade join; Save / Play / Both output |
 | **M3: Emotion from Text** (wk 4) | Delivery follows the emotion of the text | Emotion classifier stage; emotion-to-expressiveness mapping; manual override; classifier-then-TTS handoff with unload in between |
 | **M4: Recording to Voice (Chunked Parallel)** (wk 5-6) | Convert recordings to your voice quickly | Silence-aware 3-5 s splitter; all-core prep/post pool; GPU conversion queue; loudness match; crossfade rejoin; record-then-convert from the mic |
 | **M5: Jobs, Resume & Performance** (wk 7) | Reliable and measurably fast | Job history; resume; output browser; settings; benchmark command; tuning against targets |
 | **M6: Hardening & Release** (wk 8) | Ready for daily use | Full E2E tests; error-message polish; docs; `--plain` mode; documented design spike for the paused live mode |
+| **M7: Remote GPU Backend (Drive Queue)** (wk 9) | Full GPU speed on AMD APU / CPU laptops via Google Drive + Colab | Google Drive queue transport (`inbox/` & `outbox/`); `colab_worker.ipynb` Colab GPU worker; `RemoteTts` & `RemoteVc` engine adapters; worker heartbeat/timeout error codes (`VX-320`..`VX-323`); System remote setup screen |
 
 ## 11. Admin & Permission Model
 
@@ -225,14 +233,16 @@ Both personas are the same person on the same machine; the table exists so permi
 | R2 | **Models not freed** (memory leak across switches) | Medium / High | Manager owns the only reference; explicit `gc.collect()` + `torch.cuda.empty_cache()`; automated test that loads/unloads repeatedly and asserts memory returns near baseline. |
 | R3 | **Audible seams** between 3-5 s chunks (clicks, loudness jumps, voice drift) | High / Medium | Cut only at the quietest frame; per-chunk loudness matching; 30 ms equal-power crossfade; same reference used for every chunk; tunable chunk bounds. |
 | R4 | **CPU worker pool exhausts RAM** (every worker imports heavy libraries) | Medium / High | Workers import only light DSP libraries; chunk arrays are small; worker count configurable (default all cores, capped by free RAM check). |
-| R5 | **GPU not visible inside Docker/WSL** | Medium / High | `doctor` check with exact fix steps (Windows driver, container toolkit, `--gpus`); CPU fallback with a loud slowness warning. |
+| R5 | **No NVIDIA GPU (AMD Radeon / Ryzen APU or Intel iGPU)** | High / High | Dual mitigation: (1) Seamless CPU execution fallback (`VOXCLONE_DEVICE=cpu`) with slowness advisory. (2) **Google Drive Queue Colab Backend (M7)**: offloads neural generation to free NVIDIA T4 GPU on Google Colab via personal Google Drive queue without requiring local NVIDIA card. |
 | R6 | **WSL audio (mic/speaker) unavailable** | High / Medium | File-based paths work without audio; `doctor` tests PulseAudio socket; clear fallback message; mic features degrade gracefully. |
 | R7 | **Poor reference sample** produces bad clones | High / Medium | Validation (duration, level, clipping, noise estimate); guidance text on recording conditions; preview before saving. |
 | R8 | **Misuse / impersonation** | Medium / High | Consent gate at enrollment, stored with profile; no features for covert use; docs state permitted use. Generated audio from the default engine carries an embedded watermark (verify in M2). |
 | R9 | **Model license limits** (some models non-commercial) | Medium / Medium | Record each model's license in the TDR; verify before any commercial use. |
 | R10 | **Long jobs interrupted** | Medium / Medium | Per-chunk persistence and resume. |
-| R11 | **Weights download fails or is slow** | Medium / Low | Persistent cache volume; retry; offline mode after first success. |
+| R11 | **Weights download fails or is slow** | Medium / Low | Persistent cache volume; retry; offline mode after first success. For Colab, models cached directly in Drive. |
 | R12 | **Live mode scope creep** | Medium / Medium | Explicitly paused; zero menu entry; design-only spike in M6. |
+| R13 | **Google Drive sync latency or Colab disconnect** | Medium / Medium | Chunks submitted in batches; Colab worker heartbeats tracked (`VX-320` timeout error); resumable chunk architecture automatically picks up unfinished chunks upon reconnect. |
+
 
 ## 13. Success Metrics
 
