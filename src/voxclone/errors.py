@@ -125,6 +125,42 @@ class ModelWeightsMissingError(VoxcloneError):
     recovery_actions: tuple[str, ...] = ("fetch_models", "doctor", "log_path")
 
 
+class RemoteWorkerOfflineError(VoxcloneError):
+    """Raised when remote Colab GPU worker is not responding or heartbeat is stale."""
+
+    code = "VX-320"
+    default_message = "Remote Colab GPU worker offline or heartbeat missing"
+    default_hint = "Start the Colab worker notebook on Google Colab"
+    recovery_actions: tuple[str, ...] = ("doctor", "log_path")
+
+
+class RemoteQueueTimeoutError(VoxcloneError):
+    """Raised when a task times out waiting for remote Colab worker response."""
+
+    code = "VX-321"
+    default_message = "Timeout waiting for remote GPU response"
+    default_hint = "Check Colab notebook execution status and retry"
+    recovery_actions: tuple[str, ...] = ("resume", "doctor", "log_path")
+
+
+class RemoteDriveNotMountedError(VoxcloneError):
+    """Raised when the specified Google Drive queue folder does not exist or is not mounted."""
+
+    code = "VX-322"
+    default_message = "Google Drive queue directory not accessible"
+    default_hint = "Verify Google Drive sync is running and configure drive_dir"
+    recovery_actions: tuple[str, ...] = ("doctor", "log_path")
+
+
+class RemoteWorkerInternalError(VoxcloneError):
+    """Raised when remote Colab GPU worker reports an internal execution error."""
+
+    code = "VX-323"
+    default_message = "Remote Colab GPU worker reported an error"
+    default_hint = "Check output logs in Colab worker notebook cell"
+    recovery_actions: tuple[str, ...] = ("resume", "log_path")
+
+
 class MicrophoneUnavailableError(VoxcloneError):
     """Raised when audio capture device cannot be opened."""
 
@@ -171,6 +207,10 @@ ERROR_CODES: dict[str, type[VoxcloneError]] = {
     "VX-301": ChunkOutOfMemoryError,
     "VX-302": GpuUnavailableError,
     "VX-310": ModelWeightsMissingError,
+    "VX-320": RemoteWorkerOfflineError,
+    "VX-321": RemoteQueueTimeoutError,
+    "VX-322": RemoteDriveNotMountedError,
+    "VX-323": RemoteWorkerInternalError,
     "VX-401": MicrophoneUnavailableError,
     "VX-402": SpeakerUnavailableError,
     "VX-500": JobInterruptedError,

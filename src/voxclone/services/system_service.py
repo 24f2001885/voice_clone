@@ -283,9 +283,38 @@ def _check_data_dirs_writable(config: AppConfig) -> DoctorCheck:
         )
 
 
+def _check_remote_drive(config: AppConfig) -> DoctorCheck:
+    """Verify Google Drive queue connectivity and Colab worker heartbeat."""
+    from voxclone.transport.drive_queue import check_worker_heartbeat
+
+    drive_dir = getattr(config, "drive_dir", Path("drive_queue"))
+    try:
+        hb = check_worker_heartbeat(drive_dir, max_age_sec=180.0)
+        gpu = hb.get("gpu_name", "NVIDIA GPU")
+        status = hb.get("status", "idle")
+        age = hb.get("heartbeat_age_sec", 0.0)
+        return DoctorCheck(
+            name="remote_colab_worker",
+            ok=True,
+            detail=f"Colab GPU worker active ({gpu}, status: {status}, heartbeat {age:.0f}s ago)",
+            fix_hint="",
+        )
+    except Exception as exc:
+        return DoctorCheck(
+            name="remote_colab_worker",
+            ok=False,
+            detail=f"Remote worker unavailable: {exc!s}",
+            fix_hint="Open scripts/colab_worker.ipynb in Google Colab and run all cells.",
+        )
+
+
 def run_doctor(config: AppConfig) -> list[DoctorCheck]:
     """Execute all pre-flight diagnostic checks sequentially without throwing."""
     checks: list[DoctorCheck] = []
+
+    # If running with remote Drive backend, probe the Drive queue and worker heartbeat
+    if getattr(config, "backend", "local") == "remote_drive":
+        checks.append(_check_remote_drive(config))
 
     # 1. GPU visible
     checks.append(_check_gpu_visible())

@@ -308,6 +308,7 @@ def screen_system_menu(state: Any) -> None:
         "Doctor (system checks) (S-53)",
         "Storage utilization (S-56)",
         "Settings (S-54 & S-55)",
+        "Remote Colab GPU worker (S-58)",
     ]
 
     while True:
@@ -336,4 +337,8 @@ def screen_system_menu(state: Any) -> None:
             screen_storage(state)
         elif choice == "Settings (S-54 & S-55)":
             screen_settings_overview(state)
+        elif choice == "Remote Colab GPU worker (S-58)":
+            from voxclone.ui.screens.remote_worker import screen_remote_worker
+
+            screen_remote_worker(state)
 
