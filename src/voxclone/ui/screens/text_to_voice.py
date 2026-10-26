@@ -1,4 +1,4 @@
-"""Text-to-voice interactive screens (S-20 to S-26)."""
+"""Text-to-voice interactive screens (S-20 to S-26) with emotion classification and preview."""
 from __future__ import annotations
 
 import logging
@@ -6,9 +6,12 @@ from pathlib import Path
 from typing import Any
 
 import questionary
+from rich.table import Table
 
-from voxclone.audio.io import play_audio, load_audio
+from voxclone.audio.io import load_audio, play_audio
 from voxclone.errors import ConsentRequiredError, VoxcloneError
+from voxclone.pipelines.emotion_mapping import map_emotion_label
+from voxclone.pipelines.text_splitter import split_text_into_chunks
 from voxclone.services.job_service import JobService
 from voxclone.ui.components import render_header, render_panel
 from voxclone.ui.session import SessionState
@@ -112,15 +115,64 @@ def screen_text_to_voice(state: SessionState) -> str:
     emotion_choice = questionary.select(
         "Select emotional delivery style (S-22):",
         choices=[
-            questionary.Choice(title="Normal (balanced, recommended)", value="normal"),
-            questionary.Choice(title="Calm (relaxed, steady cadence)", value="calm"),
+            questionary.Choice(title="Auto (Detect emotion from text passages)", value="auto"),
+            questionary.Choice(title="Normal (balanced, steady cadence)", value="normal"),
+            questionary.Choice(title="Calm (relaxed, lower dynamics)", value="calm"),
             questionary.Choice(title="Expressive (higher energy and dynamics)", value="expressive"),
         ],
-        default="normal",
+        default="auto",
     ).ask()
 
     if not emotion_choice:
-        emotion_choice = "normal"
+        emotion_choice = "auto"
+
+    # S-23: Emotion preview table (when auto mode is selected)
+    if emotion_choice == "auto":
+        max_chars = int(state.config.sentence_max_chars if hasattr(state.config, "sentence_max_chars") else 200)
+        chunks = split_text_into_chunks(input_text, max_chars=max_chars)
+
+        state.console.print("\n[dim]Analyzing text emotion across passages...[/dim]")
+        try:
+            emotion_engine = state.model_manager.acquire("emotion")
+            detected_labels = emotion_engine.classify(chunks)
+            state.model_manager.unload("emotion")
+
+            table = Table(title="Emotion Analysis Preview (S-23)", expand=False)
+            table.add_column("#", justify="right", style="cyan")
+            table.add_column("Text Passage", style="white")
+            table.add_column("Detected Emotion", style="bold green")
+            table.add_column("Expressiveness", justify="right", style="yellow")
+
+            for i, (chunk, label) in enumerate(zip(chunks, detected_labels)):
+                snippet = chunk[:40] + ("..." if len(chunk) > 40 else "")
+                expr_val = map_emotion_label(label)
+                table.add_row(str(i + 1), snippet, label.upper(), f"{expr_val:.2f}")
+
+            state.console.print(table)
+
+            preview_action = questionary.select(
+                "Review detected emotions:",
+                choices=[
+                    questionary.Choice(title="✔ Continue with synthesis", value="continue"),
+                    questionary.Choice(title="Override with Calm style", value="override_calm"),
+                    questionary.Choice(title="Override with Normal style", value="override_normal"),
+                    questionary.Choice(title="Override with Expressive style", value="override_expressive"),
+                    questionary.Choice(title="← Cancel job", value="cancel"),
+                ],
+                default="continue",
+            ).ask()
+
+            if preview_action == "cancel" or not preview_action:
+                return "menu"
+            elif preview_action == "override_calm":
+                emotion_choice = "calm"
+            elif preview_action == "override_normal":
+                emotion_choice = "normal"
+            elif preview_action == "override_expressive":
+                emotion_choice = "expressive"
+
+        except Exception as e:
+            logger.warning("Emotion preview failed, proceeding with default auto: %s", e)
 
     # S-24: Output mode selection
     output_choice = questionary.select(
@@ -168,6 +220,8 @@ def screen_text_to_voice(state: SessionState) -> str:
         for event in job_service.run_job(job.id):
             if event.stage == "split":
                 state.console.print(f"[bold cyan]• Text Split:[/bold cyan] {event.message}")
+            elif event.stage == "emotion":
+                state.console.print(f"[bold magenta]• Emotion Analysis:[/bold magenta] {event.message}")
             elif event.stage == "preparing":
                 state.console.print(f"[dim]• Preparing:[/dim] {event.message}")
             elif event.stage == "loading_model":
@@ -231,7 +285,7 @@ def screen_text_to_voice(state: SessionState) -> str:
             plain=plain,
         )
     except Exception as err:
-        logger.error(f"Unexpected error in text-to-voice screen: {err}", exc_info=True)
+        logger.error("Unexpected error in text-to-voice screen: %s", err, exc_info=True)
         render_panel(
             state.console,
             title="System Error",

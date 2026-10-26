@@ -107,3 +107,50 @@ def test_text_pipeline_cancellation(
     refreshed_job = job_svc.get_job(job.id)
     assert refreshed_job is not None
     assert refreshed_job.status == "cancelled"
+
+
+def test_text_pipeline_auto_emotion_classification_and_handoff(
+    app_config: AppConfig,
+    db_conn: sqlite3.Connection,
+    model_manager: Any,
+    make_profile: Any,
+) -> None:
+    """Auto emotion mode runs emotion classification, unloads emotion, loads TTS, and stores chunk emotions."""
+    profile = make_profile("EmotionSpeaker")
+    job_svc = JobService(conn=db_conn, config=app_config, model_manager=model_manager)
+
+    # Passage 1 has '!', triggering FakeEmotion 'joy' -> 0.70
+    # Passage 2 has '?', triggering FakeEmotion 'surprise' -> 0.80
+    # Passage 3 has 'sad', triggering FakeEmotion 'sadness' -> 0.30
+    input_text = "I am so happy today! Why did this happen? It makes me very sad."
+
+    job = job_svc.create_text_job(
+        profile_id=profile.id,
+        input_text=input_text,
+        emotion_mode="auto",
+        output_mode="save",
+    )
+
+    stages_observed = []
+    for event in job_svc.run_job(job.id):
+        stages_observed.append(event.stage)
+
+    assert "emotion" in stages_observed
+    assert "loading_model" in stages_observed
+    assert "synthesizing" in stages_observed
+    assert "done" in stages_observed
+
+    # Check chunks table in SQLite
+    from voxclone.storage import chunks_repo
+    chunks = chunks_repo.list_chunks(db_conn, job.id)
+    assert len(chunks) == 3
+
+    assert chunks[0].detected_emotion == "joy"
+    assert chunks[0].expressiveness == pytest.approx(0.70)
+
+    assert chunks[1].detected_emotion == "surprise"
+    assert chunks[1].expressiveness == pytest.approx(0.80)
+
+    assert chunks[2].detected_emotion == "sadness"
+    assert chunks[2].expressiveness == pytest.approx(0.30)
+

@@ -150,3 +150,40 @@ def test_cli_speak_success(reference_wav: Path) -> None:
     assert "Output generated:" in result.stdout
 
 
+def test_cli_speak_auto_emotion_and_preview(reference_wav: Path) -> None:
+    """Invoking speak with --emotion auto and --show-emotions runs cleanly."""
+    runner.invoke(
+        app,
+        ["profiles", "enroll", "--file", str(reference_wav), "--name", "AutoEmotionSpeaker", "--consent", "--plain"],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "speak",
+            "--profile",
+            "AutoEmotionSpeaker",
+            "--text",
+            "What wonderful news! I am so thrilled.",
+            "--emotion",
+            "auto",
+            "--show-emotions",
+            "--save",
+            "--plain",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Detected Emotion Preview" in result.stdout
+    assert "Output generated:" in result.stdout
+
+
+def test_cli_speak_invalid_emotion() -> None:
+    """Invoking speak with invalid emotion option exits with error."""
+    result = runner.invoke(
+        app,
+        ["speak", "--profile", "Any", "--text", "Test", "--emotion", "shouting", "--plain"],
+    )
+    assert result.exit_code != 0
+    assert "Invalid emotion 'shouting'" in result.stdout
+
+
+
