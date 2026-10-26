@@ -186,4 +186,37 @@ def test_cli_speak_invalid_emotion() -> None:
     assert "Invalid emotion 'shouting'" in result.stdout
 
 
+def test_cli_convert_help() -> None:
+    """Verify convert command help lists expected options."""
+    result = runner.invoke(app, ["convert", "--help"])
+    assert result.exit_code == 0
+    assert "--profile" in result.stdout
+    assert "--input" in result.stdout
+
+
+def test_cli_convert_missing_file() -> None:
+    """Invoking convert with missing input file exits with error."""
+    result = runner.invoke(
+        app,
+        ["convert", "--profile", "Any", "--input", "non_existent_file.wav", "--plain"],
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.stdout
+
+
+def test_cli_convert_success(reference_wav: Path) -> None:
+    """Enrolling a profile and converting an audio file via CLI succeeds."""
+    runner.invoke(
+        app,
+        ["profiles", "enroll", "--file", str(reference_wav), "--name", "ConvertTargetSpeaker", "--consent", "--plain"],
+    )
+    result = runner.invoke(
+        app,
+        ["convert", "--profile", "ConvertTargetSpeaker", "--input", str(reference_wav), "--save", "--plain"],
+    )
+    assert result.exit_code == 0
+    assert "Output generated:" in result.stdout
+
+
+
 

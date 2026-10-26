@@ -13,6 +13,7 @@ from voxclone.config import AppConfig
 from voxclone.errors import ConsentRequiredError, InternalError, SpeakerUnavailableError
 from voxclone.models.job import Job, JobResult
 from voxclone.models.progress import PipelineContext, PipelineOutput, ProgressEvent
+from voxclone.pipelines.recording_pipeline import run_recording_pipeline
 from voxclone.pipelines.text_pipeline import run_text_pipeline
 from voxclone.storage import files, jobs_repo, profiles_repo, settings_repo
 
@@ -62,6 +63,44 @@ class JobService:
             output_mode=output_mode,
             input_text=input_text,
             emotion_mode=emotion_mode,
+        )
+        return job
+
+    def create_recording_job(
+        self,
+        profile_id: str,
+        input_audio_path: Path | str,
+        output_mode: str = "save",
+    ) -> Job:
+        """Create and queue a recording-to-voice conversion job for a consenting profile."""
+        profile = profiles_repo.get_by_id(self.conn, profile_id)
+        if not profile:
+            raise InternalError(
+                f"Voice profile ID '{profile_id}' not found.",
+                hint="Run 'voxclone profiles list' to inspect registered voices.",
+                code="VX-104",
+            )
+
+        if not profile.consent_confirmed:
+            raise ConsentRequiredError(
+                f"Voice profile '{profile.name}' cannot be used without ethical consent.",
+            )
+
+        p_audio = Path(input_audio_path)
+        if not p_audio.is_file():
+            raise InternalError(
+                f"Source recording file does not exist: {p_audio}",
+                hint="Verify input file path before submitting conversion job.",
+            )
+
+        job = jobs_repo.create_job(
+            conn=self.conn,
+            job_type="recording_to_voice",
+            profile_id=profile.id,
+            profile_name_snapshot=profile.name,
+            input_source="file",
+            output_mode=output_mode,
+            input_path=p_audio,
         )
         return job
 
@@ -115,6 +154,8 @@ class JobService:
 
         if job.job_type == "text_to_voice":
             pipeline_gen = run_text_pipeline(ctx)
+        elif job.job_type == "recording_to_voice":
+            pipeline_gen = run_recording_pipeline(ctx)
         else:
             raise NotImplementedError(f"Job type '{job.job_type}' pipeline not implemented.")
 
